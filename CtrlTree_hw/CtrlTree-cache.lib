@@ -36,25 +36,23 @@ X P1 1 -150 0 100 R 60 60 1 1 P
 ENDDRAW
 ENDDEF
 #
-# Connectors_kl_USB_MICRO_2H
+# Connectors_kl_USB_B
 #
-DEF Connectors_kl_USB_MICRO_2H XL 0 40 Y Y 1 F N
+DEF Connectors_kl_USB_B XL 0 40 Y Y 1 F N
 F0 "XL" -200 450 60 H V C CNN
-F1 "Connectors_kl_USB_MICRO_2H" -100 350 60 H V C CNN
+F1 "Connectors_kl_USB_B" -100 350 60 H V C CNN
 F2 "" 0 0 60 H V C CNN
 F3 "" 0 0 60 H V C CNN
 $FPLIST
- USB*
+ USB_B
 $ENDFPLIST
 DRAW
-S 0 -300 -400 300 0 1 0 f
+S 0 -200 -300 300 0 1 0 f
 X UVcc 1 200 200 200 L 50 50 1 1 w
 X D- 2 200 100 200 L 50 50 1 1 P
 X D+ 3 200 0 200 L 50 50 1 1 P
-X UID 4 200 -100 200 L 50 50 1 1 P
-X UGND 5 200 -200 200 L 50 50 1 1 w
-X ~ H1 -350 -500 200 U 50 50 1 1 P
-X ~ H2 -250 -500 200 U 50 50 1 1 P
+X UGND 4 200 -100 200 L 50 50 1 1 w
+X ~ H -150 -400 200 U 50 50 1 1 P
 ENDDRAW
 ENDDEF
 #
@@ -168,7 +166,7 @@ DEF Power_kl_MCP1700 DA 0 40 Y Y 1 F N
 F0 "DA" 150 300 60 H V C CNN
 F1 "Power_kl_MCP1700" -200 300 60 H V C CNN
 F2 "SOT:SOT23-3A" 50 200 60 H I C CNN
-F3 "http://datasheet.elcodis.com/pdf2/93/72/937252/mcp1700-1202e.pdf" 150 300 60 H I C CNN
+F3 "D:/Datasheets/Power/Linear regulators/MC7800-D 30V 1A out5V.pdf" 150 300 60 H I C CNN
 F4 "10" 250 400 60 H I C CNN "Price"
 F5 "3" 350 500 60 H I C CNN "SolderPoints"
 $FPLIST
@@ -258,7 +256,12 @@ F2 "Capacitors:CAP_0603" 100 -150 28 V I C BNN
 F3 "" -100 -100 60 H I C CNN
 F4 "0.5" 0 0 60 H I C CNN "Price"
 F5 "2" 100 100 60 H I C CNN "SolderPoints"
-F6 "X5R or X7R capacitor, 6.3V or higher" 0 0 79 H I C CNN "Comment"
+F6 "X5R or X7R capacitor, 6.3V or higher" 0 0 79 H I C CNN "Description"
+F7 "Capacitor SMD" 0 0 50 H I C CNN "Type"
+F8 "-" 0 0 50 H I C CNN "PN"
+F9 "-" 0 0 50 H I C CNN "Manufacturer"
+F10 "X5R or X7R" 0 0 50 H I C CNN "Dielectric"
+F11 "20%" 0 0 50 H I C CNN "Tolerance"
 $FPLIST
  c*
 $ENDFPLIST
@@ -320,6 +323,26 @@ X H H 0 -150 50 U 50 50 1 1 P
 ENDDRAW
 ENDDEF
 #
+# Tittar_kl_D_Shottky
+#
+DEF Tittar_kl_D_Shottky D 0 40 N N 1 F N
+F0 "D" 0 100 50 H V C CNN
+F1 "Tittar_kl_D_Shottky" 0 -100 50 H V C CNN
+F2 "" -100 0 60 H I C CNN
+F3 "" 0 100 60 H I C CNN
+F4 "5" 100 200 60 H I C CNN "Price"
+F5 "2" 200 300 60 H I C CNN "SolderPoints"
+$FPLIST
+ d*
+$ENDFPLIST
+DRAW
+P 5 0 1 6 25 -50 50 -50 50 50 75 50 75 50 N
+P 5 0 1 0 50 0 -50 -50 -50 50 50 0 -50 0 N
+X ~ A -150 0 100 R 40 40 1 1 P
+X ~ C 150 0 100 L 40 40 1 1 P
+ENDDRAW
+ENDDEF
+#
 # Tittar_kl_L
 #
 DEF Tittar_kl_L L 0 40 N N 1 F N
@@ -329,6 +352,10 @@ F2 "Inductors:IND_0402" 60 10 40 V I C CNN
 F3 "" -100 -140 60 V I C CNN
 F4 "4" 0 -40 60 V I C CNN "Price"
 F5 "2" 100 60 60 V I C CNN "SolderPoints"
+F6 "Inductor SMD" 0 0 50 H I C CNN "Type"
+F7 "-" 0 0 50 H I C CNN "Description"
+F8 "-" 0 0 50 H I C CNN "PN"
+F9 "20%" 0 0 50 H I C CNN "Tolerance"
 $FPLIST
  IND*
 $ENDFPLIST
@@ -373,10 +400,13 @@ DEF Tittar_kl_R R 0 0 N Y 1 F N
 F0 "R" 80 -150 50 V V C CNN
 F1 "Tittar_kl_R" 0 0 50 V V C CNN
 F2 "Resistors:RES_0603" 80 100 28 V I C CNN
-F3 "" 80 -150 60 V V C CNN
+F3 "" 80 -150 60 V I C CNN
 F4 "0.5" 180 -50 60 V I C CNN "Price"
 F5 "2" 280 50 60 V I C CNN "SolderPoints"
-F6 "1% resistor" 0 0 79 H I C CNN "Comment"
+F6 "1% resistor" 0 0 79 H I C CNN "Description"
+F7 "-" 0 0 50 H I C CNN "PN"
+F8 "1%" 0 0 50 H I C CNN "Tolerance"
+F9 "Resistor" 0 0 50 H I C CNN "Type"
 $FPLIST
  r*
 $ENDFPLIST
@@ -394,6 +424,8 @@ F0 "D" -50 100 40 H V C CNN
 F1 "Tittar_kl_ZenerBidir" 0 -100 40 H V C CNN
 F2 "" -300 450 60 H V C CNN
 F3 "" -300 450 60 H V C CNN
+F4 "ESD Protection Zener" 0 0 50 H I C CNN "Description"
+F5 "Bidir Zener" 0 0 50 H I C CNN "Type"
 $FPLIST
  D*
 $ENDFPLIST
@@ -506,25 +538,6 @@ X SDA 5 -500 200 200 R 50 50 1 1 P
 X SCL 6 -500 100 200 R 50 50 1 1 P
 X WP 7 500 200 200 L 50 50 1 1 P
 X Vcc 8 -500 -100 200 R 50 50 1 1 W X
-ENDDRAW
-ENDDEF
-#
-# pcb_details_HOLE_METALLED
-#
-DEF pcb_details_HOLE_METALLED HOLE 0 40 Y Y 1 F N
-F0 "HOLE" -500 -50 60 H V C CNN
-F1 "pcb_details_HOLE_METALLED" -550 50 60 H V C CNN
-F2 "" -600 -150 60 H I C CNN
-F3 "" -500 -50 60 H I C CNN
-F4 "0" -400 50 60 H I C CNN "Price"
-F5 "0" -300 150 60 H I C CNN "SolderPoints"
-F6 "1" 0 0 79 H I C CNN "DoNotBOM"
-$FPLIST
- HOLE*
-$ENDFPLIST
-DRAW
-C 0 0 100 0 1 0 f
-X ~ H 300 0 200 L 50 50 1 1 P
 ENDDRAW
 ENDDEF
 #

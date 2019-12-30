@@ -1,4 +1,4 @@
-711368734517059
+715275282335922
 Antennas
 ANT_868_10d4x36
 PCB{space}75.7x37.5,{space}AntPcb{space}14.8mm
@@ -1204,6 +1204,13 @@ USB{space}conn{space}type{space}B:{space}USBB-1J
 5
 5
 Connectors
+USB_C_MOLEX_1054500101
+
+
+0
+28
+28
+Connectors
 USBmicro_MOLEX_1050170001
 
 
@@ -1350,6 +1357,20 @@ uUSB_Micro5P
 0
 7
 7
+DIP
+DIP-8_296_ELL
+
+
+0
+8
+8
+DIP
+DIP-16_296_ELL
+
+
+0
+16
+16
 Diodes
 SMA_DO214AC
 
@@ -1392,6 +1413,27 @@ SOD923
 0
 2
 2
+Display
+7Segx4
+
+
+0
+36
+36
+Display
+Round2_2
+
+
+0
+30
+30
+FFC
+Conn_0d5x8
+
+
+0
+8
+8
 Inductors
 13x13
 
@@ -1547,6 +1589,13 @@ AAx2{space}battery{space}holder{space}(BH431/BH621)
 2
 2
 Installation
+BATTERY_AAA_X2_PLUS_LEFT
+AAx2{space}battery{space}holder{space}(BH431/BH621)
+
+0
+2
+2
+Installation
 BATTERY_AAA_X3
 AAAx3{space}battery{space}holder{space}(BH431A)
 
@@ -1597,6 +1646,13 @@ BUZZER_HPA17A
 2
 Installation
 BUZZER_HPM14A
+
+
+0
+2
+2
+Installation
+BUZZER_KLJ-09650-3027
 
 
 0
@@ -1980,55 +2036,6 @@ TQFP-32_7x7_Pitch0.8mm
 0
 32
 32
-Modules
-BT_HC0x
-
-
-0
-34
-34
-Modules
-ESP32WROOM32
-
-
-0
-39
-39
-Modules
-ESP8266PCB
-
-
-0
-30
-30
-Modules
-F3188
-
-
-0
-43
-43
-Modules
-SL3333
-
-
-0
-24
-24
-Modules
-SOM_A113_v1
-
-
-0
-41
-37
-Modules
-ST_SPBT30
-
-
-0
-18
-18
 PCB
 2Holes2_5x1_4_D508
 
@@ -2552,7 +2559,7 @@ DFN8_2x3
 
 
 0
-12
+9
 9
 QFN_DFN
 DFN12
@@ -2778,6 +2785,13 @@ WSON12
 0
 19
 13
+QFN_DFN
+X2QFN_12
+
+
+0
+12
+12
 QFN_DFN
 mrQFN76
 
