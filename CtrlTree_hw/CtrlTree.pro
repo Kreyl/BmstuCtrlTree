@@ -1,4 +1,4 @@
-update=31.12.2019 1:42:55
+update=31.12.2019 18:43:59
 version=1
 last_client=kicad
 [general]
@@ -31,11 +31,11 @@ ERC_CheckBusToNetConflicts=1
 [pcbnew]
 version=1
 PageLayoutDescrFile=
-LastNetListRead=
+LastNetListRead=./
 LastSTEPExportPath=
 LastIDFExportPath=
 LastVRMLExportPath=
-LastSpecctraDSNExportPath=
+LastSpecctraDSNExportPath=CtrlTree.dsn
 LastGenCADExportPath=
 CopperLayerCount=4
 BoardThickness=1
@@ -50,14 +50,14 @@ MinMicroViaDiameter=0.2
 MinMicroViaDrill=0.09999999999999999
 MinHoleToHole=0.25
 CopperEdgeClearance=0.01
-TrackWidth1=0.18
-ViaDiameter1=0.7
+TrackWidth1=0.15
+ViaDiameter1=0.6
 ViaDrill1=0.3
 dPairWidth1=0.2
 dPairGap1=0.25
 dPairViaGap1=0.25
-SilkLineWidth=0.15
-SilkTextSizeV=1.5
+SilkLineWidth=0.3
+SilkTextSizeV=0.6
 SilkTextSizeH=0.6
 SilkTextSizeThickness=0.15
 SilkTextItalic=0
@@ -251,9 +251,9 @@ Enabled=0
 [pcbnew/Netclasses]
 [pcbnew/Netclasses/Default]
 Name=Default
-Clearance=0.18
-TrackWidth=0.18
-ViaDiameter=0.7
+Clearance=0.15
+TrackWidth=0.15
+ViaDiameter=0.6
 ViaDrill=0.3
 uViaDiameter=0.3
 uViaDrill=0.1
@@ -262,9 +262,9 @@ dPairGap=0.25
 dPairViaGap=0.25
 [pcbnew/Netclasses/1]
 Name=Wide
-Clearance=0.2
+Clearance=0.22
 TrackWidth=0.5
-ViaDiameter=0.7
+ViaDiameter=0.6
 ViaDrill=0.3
 uViaDiameter=0.3
 uViaDrill=0.1

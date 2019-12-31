@@ -1,3 +1,5 @@
 *.sch-bak
 *.pdf
 *.kicad_pcb-bak
+*.dsn
+*.ses
