@@ -1,4 +1,4 @@
-715443631853264
+716990854097242
 Antennas
 ANT_868_10d4x36
 PCB{space}75.7x37.5,{space}AntPcb{space}14.8mm
@@ -195,6 +195,13 @@ MagicStick
 0
 1
 1
+BGA
+BGA-294_21x14_12.0x7.5mm
+
+
+0
+167
+167
 BtnsSwitches
 BTN_4PIN_12mm
 
