@@ -1,4 +1,4 @@
-#include "uart.h"
+#include <uart2.h>
 #include "kl_i2c.h"
 
 #if defined STM32L1XX || defined STM32F2XX || defined STM32F4XX

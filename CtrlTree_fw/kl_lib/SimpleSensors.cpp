@@ -5,8 +5,8 @@
  *      Author: Kreyl
  */
 
+#include <uart2.h>
 #include "SimpleSensors.h"
-#include "uart.h"
 
 #if SIMPLESENSORS_ENABLED
 #include "PinSnsSettings.h"

@@ -1,4 +1,4 @@
-update=31.12.2019 18:43:59
+update=05.04.2020 17:03:59
 version=1
 last_client=kicad
 [general]
@@ -41,14 +41,14 @@ CopperLayerCount=4
 BoardThickness=1
 AllowMicroVias=0
 AllowBlindVias=0
-RequireCourtyardDefinitions=0
-ProhibitOverlappingCourtyards=1
 MinTrackWidth=0.15
 MinViaDiameter=0.6
 MinViaDrill=0.3
 MinMicroViaDiameter=0.2
 MinMicroViaDrill=0.09999999999999999
 MinHoleToHole=0.25
+RequireCourtyardDefinitions=0
+ProhibitOverlappingCourtyards=1
 CopperEdgeClearance=0.01
 TrackWidth1=0.15
 ViaDiameter1=0.6
@@ -81,7 +81,7 @@ DimensionPrecision=1
 SolderMaskClearance=0.051
 SolderMaskMinWidth=0.15
 SolderPasteClearance=0
-SolderPasteRatio=-0
+SolderPasteRatio=0
 [pcbnew/Layer.F.Cu]
 Name=F.Cu
 Type=0

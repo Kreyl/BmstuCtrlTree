@@ -12,9 +12,6 @@
 #include "shell.h"
 #include "board.h"
 
-extern "C"
-void DmaUartTxIrq(void *p, uint32_t flags);
-
 struct UartParams_t {
     uint32_t Baudrate;
     USART_TypeDef* Uart;
@@ -47,11 +44,9 @@ struct UartParams_t {
     {}
 };
 
-#define UART_USE_DMA        TRUE
 #define UART_USE_TXE_IRQ    FALSE
 
 #define UART_CMD_BUF_SZ     54 // payload bytes
-#define UART_RX_POLLING_MS  99
 
 // ==== Base class ====
 class BaseUart_t {
@@ -59,27 +54,20 @@ protected:
     const stm32_dma_stream_t *PDmaTx;
     const stm32_dma_stream_t *PDmaRx;
     const UartParams_t *Params;
-#if UART_USE_DMA
     char TXBuf[UART_TXBUF_SZ];
     char *PRead, *PWrite;
     bool IDmaIsIdle;
     uint32_t IFullSlotsCount, ITransSize;
     void ISendViaDMA();
-#endif
     int32_t OldWIndx, RIndx;
     uint8_t IRxBuf[UART_RXBUF_SZ];
 protected:
-    bool RxProcessed = true;
-    void SignalRxProcessed();
     uint8_t IPutByte(uint8_t b);
     uint8_t IPutByteNow(uint8_t b);
     void IStartTransmissionIfNotYet();
-    virtual void IOnTxEnd() = 0;
     // ==== Constructor ====
-    BaseUart_t(const UartParams_t *APParams) : Params(APParams)
-#if UART_USE_DMA
+    BaseUart_t(const UartParams_t &APParams) : Params(&APParams)
     , PRead(TXBuf), PWrite(TXBuf), IDmaIsIdle(true), IFullSlotsCount(0), ITransSize(0)
-#endif
     , OldWIndx(0), RIndx(0)
     {}
 public:
@@ -91,21 +79,15 @@ public:
     void DisableTx() { Params->Uart->CR1 &= ~USART_CR1_TE; }
     void EnableRx()  { Params->Uart->CR1 |= USART_CR1_RE; }
     void DisableRx() { Params->Uart->CR1 &= ~USART_CR1_RE; }
-#if UART_USE_DMA
     void FlushTx() { while(!IDmaIsIdle) chThdSleepMilliseconds(1); }  // wait DMA
-#endif
     void EnableTCIrq(const uint32_t Priority, ftVoidVoid ACallback);
     // Inner use
-    virtual void ProcessByteIfReceived() = 0;
-#if UART_USE_DMA
     void IRQDmaTxHandler();
-#endif
     uint8_t GetByte(uint8_t *b);
 };
 
 class CmdUart_t : public BaseUart_t, public PrintfHelper_t, public Shell_t {
 private:
-    void IOnTxEnd() {} // Dummy
     uint8_t IPutChar(char c) { return IPutByte(c);  }
     void IStartTransmissionIfNotYet() { BaseUart_t::IStartTransmissionIfNotYet(); }
     void Print(const char *format, ...) {
@@ -115,71 +97,42 @@ private:
         va_end(args);
     }
 public:
-    CmdUart_t(const UartParams_t *APParams) : BaseUart_t(APParams) {}
-    void ProcessByteIfReceived();
-    void SignalCmdProcessed() { BaseUart_t::SignalRxProcessed(); }
+    CmdUart_t(const UartParams_t &APParams) : BaseUart_t(APParams) {}
+    uint8_t TryParseRxBuff() {
+        uint8_t b;
+        while(GetByte(&b) == retvOk) {
+            if(Cmd.PutChar(b) == pdrNewCmd) return retvOk;
+        } // while get byte
+        return retvFail;
+    }
 };
 
 class CmdUart485_t : public CmdUart_t {
 private:
-    PinOutput_t PinTxRx;
-    void IStartTransmissionIfNotYet() {
-        PinTxRx.SetHi();
-        BaseUart_t::IStartTransmissionIfNotYet();
-    }
-    void IOnTxEnd() {
-#ifdef USART_SR_TC
-        while(!(Params->Uart->SR & USART_SR_TC)); // wait last bit to be shifted out
-#else
-        while(!(Params->Uart->ISR & USART_ISR_TC)); // wait last bit to be shifted out
-#endif
-        PinTxRx.SetLo();
-    }
+    GPIO_TypeDef *PGpioDE;
+    uint16_t PinDE;
+    AlterFunc_t AltFuncDE;
 public:
     void Init() {
         CmdUart_t::Init();
-        PinTxRx.Init();
-        PinTxRx.SetLo();
+        PinSetupAlterFunc(PGpioDE, PinDE, omPushPull, pudNone, AltFuncDE);
+        Params->Uart->CR1 &= ~USART_CR1_UE;   // Disable USART
+        Params->Uart->CR3 |= USART_CR3_DEM;   // Enable DriverEnable signal
+        Params->Uart->CR1 |= USART_CR1_UE;    // Enable USART
     }
-    CmdUart485_t(const UartParams_t *APParams, GPIO_TypeDef *APGPIO, uint16_t APin, PinOutMode_t AOutputType) :
-        CmdUart_t(APParams), PinTxRx(APGPIO, APin, AOutputType) {}
+    CmdUart485_t(const UartParams_t &APParams, GPIO_TypeDef *APGPIO, uint16_t APin, AlterFunc_t AAf) :
+        CmdUart_t(APParams), PGpioDE(APGPIO), PinDE(APin), AltFuncDE(AAf) {}
 };
 
-#if 1 // ==== Modbus ====
-#define MODBUS_DATA_LEN     (252+1) // + LRC
 
-class ModbusCmd_t {
+class HostUart485_t : public BaseUart_t, public PrintfHelper_t {
 private:
-    uint32_t Cnt;
-    bool Started = false;
-    char IString[CMD_BUF_SZ];
-    uint8_t Parse();
-public:
-    union {
-        uint64_t __Align;
-        struct {
-            uint8_t Addr;
-            uint8_t Function;
-            uint8_t Data[MODBUS_DATA_LEN];
-        };
-    };
-    uint32_t DataCnt;
+    GPIO_TypeDef *PGpioDE;
+    uint16_t PinDE;
+    AlterFunc_t AltFuncDE;
 
-    ProcessDataResult_t PutChar(char c);
-    void Reset() { Started = false; }
-
-};
-
-class ModbusUart485_t : public BaseUart_t, public PrintfHelper_t {
-private:
-    PinOutput_t PinTxRx;
     uint8_t IPutChar(char c) { return IPutByte(c);  }
-    void IStartTransmissionIfNotYet() {
-        PinTxRx.SetHi();
-        BaseUart_t::IStartTransmissionIfNotYet();
-    }
-    void IOnTxEnd();
-
+    void IStartTransmissionIfNotYet() { BaseUart_t::IStartTransmissionIfNotYet(); }
     void Print(const char *format, ...) {
         va_list args;
         va_start(args, format);
@@ -187,22 +140,18 @@ private:
         va_end(args);
     }
 public:
-    ModbusCmd_t Cmd;
-
     void Init() {
         BaseUart_t::Init();
-        PinTxRx.Init();
-        PinTxRx.SetLo();
+                PinSetupAlterFunc(PGpioDE, PinDE, omPushPull, pudNone, AltFuncDE);
+                Params->Uart->CR1 &= ~USART_CR1_UE;   // Disable USART
+                Params->Uart->CR3 |= USART_CR3_DEM;   // Enable DriverEnable signal
+                Params->Uart->CR1 |= USART_CR1_UE;    // Enable USART
     }
-    void ProcessByteIfReceived();
-    void SignalCmdProcessed() { BaseUart_t::SignalRxProcessed(); }
+    HostUart485_t(const UartParams_t &APParams, GPIO_TypeDef *APGPIO, uint16_t APin, AlterFunc_t AAf) :
+        BaseUart_t(APParams), PGpioDE(APGPIO), PinDE(APin), AltFuncDE(AAf) {}
 
-    void Reply();
-
-    ModbusUart485_t(const UartParams_t *APParams, GPIO_TypeDef *APGPIO, uint16_t APin, PinOutMode_t AOutputType) :
-        BaseUart_t(APParams), PinTxRx(APGPIO, APin, AOutputType) {}
 };
-#endif
+
 
 #define BYTE_UART_EN    FALSE
 #if BYTE_UART_EN

@@ -100,7 +100,6 @@ public:
 class Shell_t {
 public:
 	Cmd_t Cmd;
-	virtual void SignalCmdProcessed() = 0;
 	virtual void Print(const char *format, ...) = 0;
 	void Reply(const char* CmdCode, int32_t Data) { Print("%S,%d\r\n", CmdCode, Data); }
 	void Ack(int32_t Result) { Print("Ack %d\r\n", Result); }

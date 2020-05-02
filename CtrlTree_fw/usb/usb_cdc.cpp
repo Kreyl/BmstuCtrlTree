@@ -118,7 +118,7 @@ static THD_FUNCTION(ThdCDCRX, arg) {
 //                SDU1.vmt->put(&SDU1, (uint8_t)m);   // repeat what was sent
                 if(UsbCDC.Cmd.PutChar((char)m) == pdrNewCmd) {
                     chSysLock();
-                    EvtQMain.SendNowOrExitI(EvtMsg_t(evtIdShellCmd, (Shell_t*)&UsbCDC));
+                    EvtQMain.SendNowOrExitI(EvtMsg_t(evtIdUsbCmdRcvd, (Shell_t*)&UsbCDC));
                     chSchGoSleepS(CH_STATE_SUSPENDED); // Wait until cmd processed
                     chSysUnlock();  // Will be here when application signals that cmd processed
                 }

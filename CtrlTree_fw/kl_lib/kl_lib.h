@@ -501,6 +501,7 @@ public:
     void Disable() const { TMR_DISABLE(ITmr); }
     void SetUpdateFrequencyChangingPrescaler(uint32_t FreqHz) const;
     void SetUpdateFrequencyChangingTopValue(uint32_t FreqHz) const;
+    void SetUpdateFrequencyChangingBoth(uint32_t FreqHz) const;
     void SetTopValue(uint32_t Value) const { ITmr->ARR = Value; }
     uint32_t GetTopValue() const { return ITmr->ARR; }
     void EnableArrBuffering()  const { ITmr->CR1 |=  TIM_CR1_ARPE; }
@@ -557,6 +558,7 @@ public:
     void ClearCompare3IrqPendingBit() const { ITmr->SR &= ~TIM_SR_CC3IF; }
     void ClearCompare4IrqPendingBit() const { ITmr->SR &= ~TIM_SR_CC4IF; }
     // Check
+    bool IsEnabled() const { return (ITmr->CR1 & TIM_CR1_CEN); }
     bool IsUpdateIrqFired() const { return (ITmr->SR & TIM_SR_UIF); }
     bool IsCompare1IrqFired() const { return (ITmr->SR & TIM_SR_CC1IF); }
     bool IsCompare2IrqFired() const { return (ITmr->SR & TIM_SR_CC2IF); }
@@ -576,6 +578,9 @@ struct PinInputSetup_t {
     GPIO_TypeDef *PGpio;
     uint16_t Pin;
     PinPullUpDown_t PullUpDown;
+    PinInputSetup_t(GPIO_TypeDef *APGpio, uint16_t APin, PinPullUpDown_t APullUpDown) :
+        PGpio(APGpio), Pin(APin), PullUpDown(APullUpDown) {}
+
 };
 
 struct PwmSetup_t {
@@ -658,26 +663,26 @@ __always_inline
 static inline void PinSetLo(GPIO_TypeDef *PGpio, uint16_t APin) { PGpio->BSRRH = (1 << APin); }
 #elif defined STM32F2XX || defined STM32L1XX || defined STM32F7XX
 __always_inline
-static inline void PinSetHi(GPIO_TypeDef *PGpio, uint32_t APin) { PGpio->BSRR = 1 << APin; }
+static void PinSetHi(GPIO_TypeDef *PGpio, uint32_t APin) { PGpio->BSRR = 1 << APin; }
 __always_inline
-static inline void PinSetLo(GPIO_TypeDef *PGpio, uint32_t APin) { PGpio->BSRR = 1 << (APin + 16);  }
+static void PinSetLo(GPIO_TypeDef *PGpio, uint32_t APin) { PGpio->BSRR = 1 << (APin + 16);  }
 #elif defined STM32F0XX || defined STM32F10X_LD_VL || defined STM32L4XX || defined STM32F103xE
 __always_inline
-static inline void PinSetHi(GPIO_TypeDef *PGpio, uint32_t APin) { PGpio->BSRR = 1 << APin; }
+static void PinSetHi(GPIO_TypeDef *PGpio, uint32_t APin) { PGpio->BSRR = 1 << APin; }
 __always_inline
-static inline void PinSetLo(GPIO_TypeDef *PGpio, uint32_t APin) { PGpio->BRR = 1 << APin;  }
+static void PinSetLo(GPIO_TypeDef *PGpio, uint32_t APin) { PGpio->BRR = 1 << APin;  }
 #endif
 __always_inline
-static inline void PinToggle(GPIO_TypeDef *PGpio, uint32_t APin) { PGpio->ODR ^= 1 << APin; }
+static void PinToggle(GPIO_TypeDef *PGpio, uint32_t APin) { PGpio->ODR ^= 1 << APin; }
 // Check input
 __always_inline
-static inline bool PinIsHi(GPIO_TypeDef *PGpio, uint32_t APin) { return PGpio->IDR & (1 << APin); }
+static bool PinIsHi(GPIO_TypeDef *PGpio, uint32_t APin) { return PGpio->IDR & (1 << APin); }
 __always_inline
-static inline bool PinIsHi(const GPIO_TypeDef *PGpio, uint32_t APin) { return PGpio->IDR & (1 << APin); }
+static bool PinIsHi(const GPIO_TypeDef *PGpio, uint32_t APin) { return PGpio->IDR & (1 << APin); }
 __always_inline
-static inline bool PinIsLo(GPIO_TypeDef *PGpio, uint32_t APin) { return !(PGpio->IDR & (1 << APin)); }
+static bool PinIsLo(GPIO_TypeDef *PGpio, uint32_t APin) { return !(PGpio->IDR & (1 << APin)); }
 __always_inline
-static inline bool PinIsLo(const GPIO_TypeDef *PGpio, uint32_t APin) { return !(PGpio->IDR & (1 << APin)); }
+static bool PinIsLo(const GPIO_TypeDef *PGpio, uint32_t APin) { return !(PGpio->IDR & (1 << APin)); }
 
 // Setup
 static void PinClockEnable(const GPIO_TypeDef *PGpioPort) {
@@ -851,7 +856,7 @@ static inline void PinSetupAnalog(GPIO_TypeDef *PGpioPort, const uint16_t APinNu
 #endif
 }
 
-#ifdef STM32L476
+#ifdef STM32L4XX
 static inline void PinConnectAdc(GPIO_TypeDef *PGpioPort, const uint16_t APinNumber) {
     SET_BIT(PGpioPort->ASCR, 1<<APinNumber);
 }
@@ -947,21 +952,21 @@ static inline void PortInit(GPIO_TypeDef *PGpioPort,
 }
 
 __always_inline
-static inline void PortSetupOutput(GPIO_TypeDef *PGpioPort) {
+static void PortSetupOutput(GPIO_TypeDef *PGpioPort) {
     PGpioPort->MODER = 0x55555555;
 }
 __always_inline
-static inline void PortSetupInput(GPIO_TypeDef *PGpioPort) {
+static void PortSetupInput(GPIO_TypeDef *PGpioPort) {
     PGpioPort->MODER = 0x00000000;
 }
 #endif
 
 __always_inline
-static inline void PortSetValue(GPIO_TypeDef *PGpioPort, uint16_t Data) {
+static void PortSetValue(GPIO_TypeDef *PGpioPort, uint16_t Data) {
     PGpioPort->ODR = Data;
 }
 __always_inline
-static inline uint16_t PortGetValue(GPIO_TypeDef *PGpioPort) {
+static uint16_t PortGetValue(GPIO_TypeDef *PGpioPort) {
     return PGpioPort->IDR;
 }
 #endif // Simple pin manipulations
@@ -986,6 +991,11 @@ private:
     PinOutMode_t OutputType;
 public:
     void Init() const { PinSetupOut(PGpio, Pin, OutputType); }
+    void InitAndSetHi() const {
+        PinClockEnable(PGpio);
+        PinSetHi(PGpio, Pin);
+        PinSetupOut(PGpio, Pin, OutputType);
+    }
     void Deinit() const { PinSetupAnalog(PGpio, Pin); }
     void SetHi() const { PinSetHi(PGpio, Pin); }
     void SetLo() const { PinSetLo(PGpio, Pin); }
@@ -1005,6 +1015,8 @@ public:
     void Deinit() const { PinSetupAnalog(ISetup.PGpio, ISetup.Pin); }
     bool IsHi() const { return PinIsHi(ISetup.PGpio, ISetup.Pin); }
     PinInput_t(const PinInputSetup_t &ASetup) : ISetup(ASetup) {}
+    PinInput_t(GPIO_TypeDef *APGpio, uint16_t APin, PinPullUpDown_t APullUpDown) :
+        ISetup(APGpio, APin, APullUpDown) {}
 };
 
 
@@ -1417,9 +1429,11 @@ namespace Flash {
 void UnlockFlash();
 void LockFlash();
 
+void ClearPendingFlags();
 uint8_t ErasePage(uint32_t PageAddress);
+
 #if defined STM32L4XX
-uint8_t ProgramDWord(uint32_t Address, uint64_t Data);
+uint8_t ProgramBuf32(uint32_t Address, uint32_t *PData, int32_t ASzBytes);
 #else
 uint8_t ProgramWord(uint32_t Address, uint32_t Data);
 uint8_t ProgramBuf(void *PData, uint32_t ByteSz, uint32_t Addr);
@@ -1909,13 +1923,6 @@ enum i2cClk_t { i2cclkPCLK1 = 0, i2cclkSYSCLK = 1, i2cclkHSI = 2 };
 enum uartClk_t {uartclkPCLK = 0, uartclkSYSCLK = 1, uartclkHSI = 2, uartclkLSE = 3 };
 
 class Clk_t {
-private:
-    uint8_t EnableHSE();
-    uint8_t EnablePLL();
-    void EnablePLLROut() { RCC->PLLCFGR |= RCC_PLLCFGR_PLLREN; }
-    void EnablePLLQOut() { RCC->PLLCFGR |= RCC_PLLCFGR_PLLQEN; }
-
-    uint8_t EnableSai1();
 public:
     // Frequency values
     uint32_t AHBFreqHz;     // HCLK: AHB Buses, Core, Memory, DMA
@@ -1929,13 +1936,21 @@ public:
 
     uint8_t EnableHSI();
     uint8_t EnableMSI();
+    uint8_t EnableHSE();
+    uint8_t EnablePLL();
     void EnableLSE()  { RCC->BDCR |= RCC_BDCR_LSEON; }
+    void EnablePllROut() { RCC->PLLCFGR |= RCC_PLLCFGR_PLLREN; }
+    void EnablePllQOut() { RCC->PLLCFGR |= RCC_PLLCFGR_PLLQEN; }
+    uint8_t EnablePllSai1();
+    uint8_t EnablePllSai2();
+    void EnablePllSai2POut() { RCC->PLLSAI2CFGR |= RCC_PLLSAI2CFGR_PLLSAI2PEN; }
 
     void DisableHSE() { RCC->CR &= ~RCC_CR_HSEON; }
     void DisableHSI() { RCC->CR &= ~RCC_CR_HSION; }
     void DisablePLL();
     void DisableMSI() { RCC->CR &= ~RCC_CR_MSION; }
-    void DisableSai1();
+    void DisablePllSai1();
+    void DisablePllSai2();
 
     bool IsLseOn()      { return (RCC->BDCR & RCC_BDCR_LSERDY); }
 
@@ -1943,8 +1958,10 @@ public:
 
     // PLL and PLLSAI
     void SetupPllSrc(PllSrc_t Src) { MODIFY_REG(RCC->PLLCFGR, RCC_PLLCFGR_PLLSRC, ((uint32_t)Src)); }
-    uint8_t SetupPllMulDiv(uint32_t M, uint32_t N, uint32_t R, uint32_t Q);
+    uint8_t SetupM(uint32_t M);
+    uint8_t SetupPll(uint32_t N, uint32_t R, uint32_t Q);
     void SetupPllSai1(uint32_t N, uint32_t R, uint32_t Q, uint32_t P);
+    void SetupPllSai2(uint32_t N, uint32_t R, uint32_t P);
     void EnableSai1ROut() { SET_BIT(RCC->PLLSAI1CFGR, RCC_PLLSAI1CFGR_PLLSAI1REN); }
     void EnableSai1QOut() { SET_BIT(RCC->PLLSAI1CFGR, RCC_PLLSAI1CFGR_PLLSAI1QEN); }
     void EnableSai1POut() { SET_BIT(RCC->PLLSAI1CFGR, RCC_PLLSAI1CFGR_PLLSAI1PEN); }

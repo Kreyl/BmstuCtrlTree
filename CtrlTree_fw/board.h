@@ -22,7 +22,7 @@
 #define SYS_TIM_CLK             (Clk.APB1FreqHz)    // Timer 5 is clocked by APB1
 
 //  Periphery
-#define I2C1_ENABLED            FALSE
+#define I2C1_ENABLED            TRUE
 #define I2C2_ENABLED            FALSE
 #define I2C3_ENABLED            FALSE
 #define SIMPLESENSORS_ENABLED   TRUE
@@ -35,15 +35,21 @@
 // EXTI
 #define INDIVIDUAL_EXTI_IRQ_REQUIRED    FALSE
 
-// EXT RS485
-#define RS485_EXT_TXEN  GPIOA, 1, omPushPull // AF7
-#define RS485_EXT_TX    GPIOA, 2
-#define RS485_EXT_RX    GPIOA, 3
-
 // DBG UART
 #define UART_GPIO       GPIOB
 #define UART_TX_PIN     6
 #define UART_RX_PIN     7
+// Ext RS485
+#define RS485_EXT_TXEN  GPIOA, 1, AF7
+#define RS485_EXT_TX    GPIOA, 2
+#define RS485_EXT_RX    GPIOA, 3
+// Ext RS232
+#define RS232_TX        GPIOC, 12
+#define RS232_RX        GPIOD, 2
+// Int RS485
+#define RS485_INT_TXEN  GPIOB, 1, AF7
+#define RS485_INT_TX    GPIOC, 4
+#define RS485_INT_RX    GPIOC, 5
 
 // DBG LED
 #define LED_PIN         GPIOB, 3, omPushPull
@@ -57,14 +63,11 @@
 
 // I2C
 #define I2C1_GPIO       GPIOB
-#define I2C1_SCL        6
-#define I2C1_SDA        7
-#define I2C2_GPIO       GPIOB
-#define I2C2_SCL        10
-#define I2C2_SDA        11
-#define I2C3_GPIO       GPIOC
-#define I2C3_SCL        0
-#define I2C3_SDA        1
+#define I2C1_SCL        8
+#define I2C1_SDA        9
+
+#define SNS_PWR_CTRL    GPIOB, 5
+
 // I2C Alternate Function
 #define I2C_AF          AF4
 
@@ -74,8 +77,6 @@
 #define USB_AF          AF10
 // USB detect
 #define USB_DETECT_PIN  GPIOA, 9
-
-
 
 #endif // GPIO
 
@@ -101,35 +102,31 @@
 #if 1 // =========================== DMA =======================================
 // ==== Uart ====
 // Remap is made automatically if required
-#define UART_DMA_TX     STM32_DMA_STREAM_ID(2, 6)
-#define UART_DMA_RX     STM32_DMA_STREAM_ID(2, 7)
+#define UART_DMA_TX     STM32_DMA_STREAM_ID(1, 4)
+#define UART_DMA_RX     STM32_DMA_STREAM_ID(1, 5)
 #define UART_DMA_CHNL   2
 #define UART_DMA_TX_MODE(Chnl) (STM32_DMA_CR_CHSEL(Chnl) | DMA_PRIORITY_LOW | STM32_DMA_CR_MSIZE_BYTE | STM32_DMA_CR_PSIZE_BYTE | STM32_DMA_CR_MINC | STM32_DMA_CR_DIR_M2P | STM32_DMA_CR_TCIE)
 #define UART_DMA_RX_MODE(Chnl) (STM32_DMA_CR_CHSEL(Chnl) | DMA_PRIORITY_MEDIUM | STM32_DMA_CR_MSIZE_BYTE | STM32_DMA_CR_PSIZE_BYTE | STM32_DMA_CR_MINC | STM32_DMA_CR_DIR_P2M | STM32_DMA_CR_CIRC)
 
-// ==== ACG ====
-#define ACG_DMA_TX      STM32_DMA_STREAM_ID(1, 5)
-#define ACG_DMA_RX      STM32_DMA_STREAM_ID(1, 4)
-#define ACG_DMA_CHNL    1
+#define RS485EXT_DMA_TX STM32_DMA_STREAM_ID(1, 7)
+#define RS485EXT_DMA_RX STM32_DMA_STREAM_ID(1, 6)
+
+#define RS485INT_DMA_TX STM32_DMA_STREAM_ID(1, 2)
+#define RS485INT_DMA_RX STM32_DMA_STREAM_ID(1, 3)
+
+#define RS232_DMA_TX    STM32_DMA_STREAM_ID(2, 1)
+#define RS232_DMA_RX    STM32_DMA_STREAM_ID(2, 2)
 
 // ==== I2C ====
-#define I2C1_DMA_TX     STM32_DMA_STREAM_ID(1, 6)
-#define I2C1_DMA_RX     STM32_DMA_STREAM_ID(1, 7)
-#define I2C1_DMA_CHNL   3
+#define I2C1_DMA_TX     STM32_DMA_STREAM_ID(2, 7)
+#define I2C1_DMA_RX     STM32_DMA_STREAM_ID(2, 6)
+#define I2C1_DMA_CHNL   5
 #define I2C2_DMA_TX     STM32_DMA_STREAM_ID(1, 4)
 #define I2C2_DMA_RX     STM32_DMA_STREAM_ID(1, 5)
 #define I2C2_DMA_CHNL   3
 #define I2C3_DMA_TX     STM32_DMA_STREAM_ID(1, 2)
 #define I2C3_DMA_RX     STM32_DMA_STREAM_ID(1, 3)
 #define I2C3_DMA_CHNL   3
-
-// ==== SAI ====
-#define SAI_DMA_A       STM32_DMA_STREAM_ID(2, 1)
-//#define SAI_DMA_B       STM32_DMA2_STREAM2 // Audio input is not required
-#define SAI_DMA_CHNL    1
-
-// ==== SDMMC ====
-#define STM32_SDC_SDMMC1_DMA_STREAM   STM32_DMA_STREAM_ID(2, 5)
 
 #if ADC_REQUIRED
 #define ADC_DMA         STM32_DMA1_STREAM1
@@ -149,11 +146,26 @@
 #define UART_TXBUF_SZ   4096
 #define UART_RXBUF_SZ   99
 
-#define UARTS_CNT       1
+#define CMD_UART        USART1
 
 #define CMD_UART_PARAMS \
     USART1, UART_GPIO, UART_TX_PIN, UART_GPIO, UART_RX_PIN, \
     UART_DMA_TX, UART_DMA_RX, UART_DMA_TX_MODE(UART_DMA_CHNL), UART_DMA_RX_MODE(UART_DMA_CHNL), \
+    uartclkHSI // Use independent clock
+
+#define RS485EXT_PARAMS \
+    USART2, RS485_EXT_TX, RS485_EXT_RX, \
+    RS485EXT_DMA_TX, RS485EXT_DMA_RX, UART_DMA_TX_MODE(UART_DMA_CHNL), UART_DMA_RX_MODE(UART_DMA_CHNL), \
+    uartclkHSI // Use independent clock
+
+#define RS485INT_PARAMS \
+    USART3, RS485_INT_TX, RS485_INT_RX, \
+    RS485INT_DMA_TX, RS485INT_DMA_RX, UART_DMA_TX_MODE(UART_DMA_CHNL), UART_DMA_RX_MODE(UART_DMA_CHNL), \
+    uartclkHSI // Use independent clock
+
+#define RS232_PARAMS \
+    UART5, RS232_TX, RS232_RX, \
+    RS232_DMA_TX, RS232_DMA_RX, UART_DMA_TX_MODE(UART_DMA_CHNL), UART_DMA_RX_MODE(UART_DMA_CHNL), \
     uartclkHSI // Use independent clock
 
 #endif
