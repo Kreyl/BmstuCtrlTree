@@ -69,21 +69,27 @@ uint8_t DeviceList_t::Delete(uint8_t Addr) {
 }
 
 void DeviceList_t::Load() {
-//    uint8_t tmp = 0;
-//    if(ee.Read<uint8_t>(0, &tmp) == retvOk) {
-//        if(tmp >= 0 and tmp <= DEV_CNT_MAX) Cnt = tmp;
-//        else Cnt = 0;
-//    }
-//    else {
-//        Printf("EEPROM error\r\n");
-//        return;
-//    }
-
-
+    uint8_t Cnt = 0;
+    if(ee.Read<uint8_t>(0, &Cnt) != retvOk) return;
+    if(Cnt >= DEV_CNT_MAX) return; // too big Cnt
+    uint32_t MemAddr = 1;
+    for(uint8_t i=0; i<Cnt; i++) {
+        Device_t Dev;
+        if(ee.Read(MemAddr, &Dev, sizeof(Dev)) != retvOk) return;
+        IList.push_back(Dev);
+        MemAddr += sizeof(Dev);
+    }
 }
 
 void DeviceList_t::Save() {
-
+    uint32_t MemAddr = 0;
+    uint8_t ACnt = IList.size();
+    if(ee.Write<uint8_t>(MemAddr, &ACnt) != retvOk) return;
+    MemAddr++;
+    for(Device_t& Dev : IList) {
+        if(ee.Write(MemAddr, &Dev, sizeof(Dev)) != retvOk) return;
+        MemAddr += sizeof(Dev);
+    }
 }
 
 #endif

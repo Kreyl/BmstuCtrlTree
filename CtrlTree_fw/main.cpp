@@ -197,11 +197,14 @@ void OnCmd(Shell_t *PShell) {
 
     else if(PCmd->NameIs("GetDeviceList")) {
         if(DevList.Cnt() == 0) PShell->Print("NoDevices\r\n");
-        else for(int32_t i=0; i<DevList.Cnt(); i++) {
-            uint8_t CheckRslt = DevList[i].Check();
-            if(CheckRslt == retvOk) DevList[i].Print(PShell, ", OK\n");
-            else if(CheckRslt == retvCollision) DevList[i].Print(PShell, " DifferentParams\n");
-            else DevList[i].Print(PShell, " NoAnswer\n");
+        else {
+            for(int32_t i=0; i<DevList.Cnt(); i++) {
+                uint8_t CheckRslt = DevList[i].Check();
+                if(CheckRslt == retvOk) DevList[i].Print(PShell, ", OK\n");
+                else if(CheckRslt == retvCollision) DevList[i].Print(PShell, " DifferentParams\n");
+                else DevList[i].Print(PShell, " NoAnswer\n");
+            }
+            PShell->Print("\r");
         }
     }
 
@@ -253,6 +256,22 @@ void OnCmd(Shell_t *PShell) {
         else PShell->Print("NoDevices\r\n");
     }
 
+    else if(PCmd->NameIs("GetAllStates")) {
+        if(DevList.Cnt() == 0) PShell->Print("NoDevices\r\n");
+        else {
+            for(int32_t i=0; i<DevList.Cnt(); i++) {
+                uint8_t CheckRslt = DevList[i].Check();
+                if(CheckRslt == retvOk) {
+                    DevList[i].Print(PShell, ", ");
+                    //  todo: getstate
+                    PShell->Print("\n");
+                }
+                else if(CheckRslt == retvCollision) DevList[i].Print(PShell, " DifferentParams\n");
+                else DevList[i].Print(PShell, " NoAnswer\n");
+            }
+            PShell->Print("\r");
+        }
+    }
 
 #endif
 
