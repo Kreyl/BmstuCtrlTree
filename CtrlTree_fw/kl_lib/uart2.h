@@ -51,8 +51,8 @@ struct UartParams_t {
 // ==== Base class ====
 class BaseUart_t {
 protected:
-    const stm32_dma_stream_t *PDmaTx;
-    const stm32_dma_stream_t *PDmaRx;
+    const stm32_dma_stream_t *PDmaTx = nullptr;
+    const stm32_dma_stream_t *PDmaRx = nullptr;
     const UartParams_t *Params;
     char TXBuf[UART_TXBUF_SZ];
     char *PRead, *PWrite;

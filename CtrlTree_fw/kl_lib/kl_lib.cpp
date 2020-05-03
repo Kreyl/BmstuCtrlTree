@@ -10,6 +10,7 @@
 #include <string.h>
 #include "MsgQ.h"
 #include <malloc.h>
+#include <string>
 
 #if 0 // ============================ General ==================================
 // To replace standard error handler in case of virtual methods implementation
@@ -68,6 +69,23 @@ void PrintMemoryInfo() {
             "top-most, releasable: %u\r",
             info.arena, info.ordblks, info.hblks, info.hblkhd,
             info.uordblks, info.fordblks, info.keepcost);
+}
+
+extern "C"
+caddr_t _sbrk(int incr) {
+    extern uint8_t __heap_base__;
+    extern uint8_t __heap_end__;
+
+    static uint8_t *current_end = &__heap_base__;
+    uint8_t *current_block_address = current_end;
+
+    incr = (incr + 3) & (~3);
+    if(current_end + incr > &__heap_end__) {
+        errno = ENOMEM;
+        return (caddr_t) -1;
+    }
+    current_end += incr;
+    return (caddr_t)current_block_address;
 }
 
 #if 1 // ============================ kl_string ================================

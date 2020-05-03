@@ -9,6 +9,7 @@
 #include "Sequences.h"
 #include "kl_i2c.h"
 #include "Device.h"
+#include <string>
 
 #if 1 // ======================== Variables & prototypes =======================
 // Forever
@@ -21,9 +22,13 @@ static const UartParams_t CmdUartParams(115200, CMD_UART_PARAMS);
 static const UartParams_t RS232Params(115200, RS232_PARAMS);
 static const UartParams_t RS485ExtParams(115200, RS485EXT_PARAMS);
 //static const UartParams_t RS485IntParams(115200, RS485INT_PARAMS);
+
+__attribute__((section ("DATA_RAM")))
 CmdUart_t Uart{CmdUartParams};
+__attribute__((section ("DATA_RAM")))
 CmdUart485_t RS485Ext{RS485ExtParams, RS485_EXT_TXEN};
 //CmdUart485_t RS485Int{RS485IntParams, RS485_INT_TXEN};
+__attribute__((section ("DATA_RAM")))
 CmdUart_t RS232{RS232Params};
 
 bool UsbIsConnected = false;
@@ -35,6 +40,8 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd);
 void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd);
 
 static TmrKL_t TmrOneSecond {TIME_MS2I(999), evtIdEverySecond, tktPeriodic}; // Measure battery periodically
+__attribute__((section ("DATA_RAM")))
+uint8_t FileBuf[FILEBUF_SZ];
 #endif
 
 #if 1 // ============================= Classes =================================
@@ -92,16 +99,31 @@ public:
         PinSetupAlterFunc(PGpio, Mosi, omPushPull, pudNone, AF, psVeryHigh);
     }
 
-    void Transmit(uint8_t Params, uint8_t *PTx, uint8_t *PRx, uint32_t Len) {
+    void Transmit(uint8_t Params, uint8_t *ptr, uint32_t Len) {
+        PinSetLo(PGpio, Cs);
         PSpi->CR1 = SPI_CR1_SSM | SPI_CR1_SSI | SPI_CR1_MSTR;
-//        if(BitOrder == boLSB) PSpi->CR1 |= SPI_CR1_LSBFIRST;    // MSB/LSB
-//        if(CPOL == cpolIdleHigh) PSpi->CR1 |= SPI_CR1_CPOL;     // CPOL
-//        if(CPHA == cphaSecondEdge) PSpi->CR1 |= SPI_CR1_CPHA;   // CPHA
+        if(Params & 0x80) PSpi->CR1 |= SPI_CR1_LSBFIRST; // 0 = MSB, 1 = LSB
+        if(Params & 0x40) PSpi->CR1 |= SPI_CR1_CPOL;     // 0 = IdleLow, 1 = IdleHigh
+        if(Params & 0x20) PSpi->CR1 |= SPI_CR1_CPHA;     // 0 = FirstEdge, 1 = SecondEdge
+        PSpi->CR1 |= (Params & 0x07) << 3; // Setup divider
+        PSpi->CR2 = ((uint16_t)0b0111 << 8) | SPI_CR2_FRXTH;   // 8 bit, RXNE generated when 8 bit is received
+        (void)PSpi->SR; // Read Status reg to clear some flags
+        // Do it
+        PSpi->CR1 |=  SPI_CR1_SPE; // Enable SPI
+        while(Len) {
+            *((volatile uint8_t*)&PSpi->DR) = *ptr;
+            while(!(PSpi->SR & SPI_SR_RXNE));  // Wait for SPI transmission to complete
+            *ptr = *((volatile uint8_t*)&PSpi->DR);
+            ptr++;
+            Len--;
+        }
+        PinSetHi(PGpio, Cs);
+        PSpi->CR1 &= ~SPI_CR1_SPE; // Disable SPI
     }
 };
 
 DevSpi_t Spi1{SPI1, GPIOA, 5,6,7,4, AF5};
-DevSpi_t Spi2{SPI2, GPIOB, 13,14,15,13, AF5};
+DevSpi_t Spi2{SPI2, GPIOB, 13,14,15,12, AF5};
 
 #endif
 
@@ -139,6 +161,8 @@ int main(void) {
 
     Spi1.Init();
     Spi2.Init();
+
+    FileBuf[0] = 0xAA;
 
     // Uarts
     RS485Ext.Init();
@@ -342,6 +366,20 @@ uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
     return retvOk;
 }
 
+void WRSPI(Shell_t *PShell, Cmd_t *PCmd, DevSpi_t &ASpi, const char* S) {
+    uint8_t Params;
+    if(PCmd->GetNext<uint8_t>(&Params) != retvOk) { PShell->Print("BadParam\r\n"); return; }
+    uint8_t *p = FileBuf;
+    while(PCmd->GetNext<uint8_t>(p) == retvOk) p++; // Get what to send
+    uint32_t Len = p - FileBuf;
+    ASpi.Transmit(Params, FileBuf, Len);
+    // Reply
+    p = FileBuf;
+    PShell->Print("%S", S);
+    while(Len--) PShell->Print(" 0x%02X", *p++);
+    PShell->Print("\r\n");
+}
+
 void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
 #if 1 // ==== Addr, type, name ====
     if(PCmd->NameIs("Ping")) PShell->Ack(retvOk);
@@ -380,8 +418,12 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         if(PCmd->GetNext<uint32_t>(&Reg) != retvOk) { PShell->Print("BadParam\r\n"); return; }
         Settings.PowerOnGPIO = Reg;
         PShell->Ack(Settings.Save());
-   }
-   else if(PCmd->NameIs("GetPowerOnGPIO")) { PShell->Print("GetPowerOnGPIO 0x%X\r\n", Settings.PowerOnGPIO); }
+    }
+    else if(PCmd->NameIs("GetPowerOnGPIO")) { PShell->Print("GetPowerOnGPIO 0x%X\r\n", Settings.PowerOnGPIO); }
+
+    // ==== SPI ====
+    else if(PCmd->NameIs("WRSPI1")) WRSPI(PShell, PCmd, Spi1, "WRSPI1");
+    else if(PCmd->NameIs("WRSPI2")) WRSPI(PShell, PCmd, Spi2, "WRSPI2");
 
 #endif
 
