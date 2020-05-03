@@ -30,13 +30,14 @@ bool UsbIsConnected = false;
 LedBlinker_t Led{LED_PIN};
 DeviceList_t DevList;
 
-void OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd);
+uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd);
 void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd);
-void OnCommonCmd(Shell_t *PShell, Cmd_t *PCmd);
+void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd);
 
 static TmrKL_t TmrOneSecond {TIME_MS2I(999), evtIdEverySecond, tktPeriodic}; // Measure battery periodically
 #endif
 
+#if 1 // ============================= Classes =================================
 class GpioReg_t {
 private:
     uint32_t IReg = 0;
@@ -67,6 +68,42 @@ public:
         GPIOD->MODER   = (GPIOD->MODER    & 0x000003FF) | 0x55555400; // Mode = output
     }
 } GpioReg;
+
+#define SPI_BUF_SZ  32
+class DevSpi_t {
+private:
+    SPI_TypeDef *PSpi;
+    uint8_t TxBuf[SPI_BUF_SZ];
+    uint8_t RxBuf[SPI_BUF_SZ];
+    GPIO_TypeDef *PGpio;
+    uint32_t Sck, Miso, Mosi, Cs;
+    AlterFunc_t AF;
+public:
+    DevSpi_t(SPI_TypeDef *ASpi,
+            GPIO_TypeDef *AGpio, uint32_t ASck, uint32_t AMiso, uint32_t AMosi, uint32_t ACs, AlterFunc_t AAF) :
+                PSpi(ASpi), PGpio(AGpio), Sck(ASck), Miso(AMiso), Mosi(AMosi), Cs(ACs), AF(AAF) {}
+    void Init() {
+        if      (PSpi == SPI1) { rccEnableSPI1(FALSE); }
+        else if (PSpi == SPI2) { rccEnableSPI2(FALSE); }
+        PinSetupOut(PGpio, Cs, omPushPull);
+        PinSetHi(PGpio, Cs);
+        PinSetupAlterFunc(PGpio, Sck,  omPushPull, pudNone, AF, psVeryHigh);
+        PinSetupAlterFunc(PGpio, Miso, omPushPull, pudNone, AF, psVeryHigh);
+        PinSetupAlterFunc(PGpio, Mosi, omPushPull, pudNone, AF, psVeryHigh);
+    }
+
+    void Transmit(uint8_t Params, uint8_t *PTx, uint8_t *PRx, uint32_t Len) {
+        PSpi->CR1 = SPI_CR1_SSM | SPI_CR1_SSI | SPI_CR1_MSTR;
+//        if(BitOrder == boLSB) PSpi->CR1 |= SPI_CR1_LSBFIRST;    // MSB/LSB
+//        if(CPOL == cpolIdleHigh) PSpi->CR1 |= SPI_CR1_CPOL;     // CPOL
+//        if(CPHA == cphaSecondEdge) PSpi->CR1 |= SPI_CR1_CPHA;   // CPHA
+    }
+};
+
+DevSpi_t Spi1{SPI1, GPIOA, 5,6,7,4, AF5};
+DevSpi_t Spi2{SPI2, GPIOB, 13,14,15,13, AF5};
+
+#endif
 
 int main(void) {
     // Setup clock frequency
@@ -99,6 +136,9 @@ int main(void) {
 
     GpioReg.Init();
     GpioReg.Set(Settings.PowerOnGPIO);
+
+    Spi1.Init();
+    Spi2.Init();
 
     // Uarts
     RS485Ext.Init();
@@ -194,19 +234,27 @@ void OnCmd(Shell_t *PShell) {
     }
     else if(PCmd->NameIs("GetInfo")) { SelfInfo.Print(PShell, "\r\n"); }
 #endif
-    // ==== Master commands ====
-    else if(SelfInfo.Type == devtHFBlock) OnMasterCmd(PShell, PCmd);
-    // ==== Slave commands ====
-    else {
-        // Check if address matches
+    else { // Command is not direct
         uint8_t FAddr;
-        if(PCmd->GetNext<uint8_t>(&FAddr) == retvOk and FAddr == SelfInfo.Addr) OnSlaveCmd(PShell, PCmd);
-    }
+        if(SelfInfo.Type == devtHFBlock) { // if we are master
+            if(OnMasterCmd(PShell, PCmd) != retvOk) { // if cmd was not found in master cmds
+                if(PCmd->GetNext<uint8_t>(&FAddr) == retvOk) { // Got address
+                    if(FAddr == ADDR_MASTER) OnSlaveCmd(PShell, PCmd);
+                    else ProcessCmdForSlave(PShell, PCmd);
+                }
+                else PShell->Print("BadParam\r\n");
+            }
+        }
+        else { // We are Slave
+            if(PCmd->GetNext<uint8_t>(&FAddr) == retvOk and FAddr == SelfInfo.Addr) {
+                OnSlaveCmd(PShell, PCmd);
+            }
+        }
+    } // not direct
 }
 
-void OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
-    if(PCmd->NameIs("Ping")) PShell->Ack(retvOk);
-    else if(PCmd->NameIs("Scan")) {
+uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
+    if(PCmd->NameIs("Scan")) {
         // Todo
         PShell->Print("NoDevices\r\n");
     }
@@ -220,20 +268,20 @@ void OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
                 else if(CheckRslt == retvCollision) DevList[i].Print(PShell, " DifferentParams\n");
                 else DevList[i].Print(PShell, " NoAnswer\n");
             }
-            PShell->Print("\r");
+            PShell->Print("\r\n");
         }
     }
 
     else if(PCmd->NameIs("AddDevice")) {
-        if(DevList.Cnt() >= DEV_CNT_MAX) { PShell->Print("TableFull\r\n"); return; }
+        if(DevList.Cnt() >= DEV_CNT_MAX) { PShell->Print("TableFull\r\n"); return retvOk; }
         uint8_t Addr = 0, Type = 0;
-        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->Print("BadParam\r\n"); return; }
-        if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return; }
-        if(DevList.ContainsAddr(Addr)) { PShell->Print("DeviceExists\r\n"); return; }
+        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->Print("BadParam\r\n"); return retvOk; }
+        if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return retvOk; }
+        if(DevList.ContainsAddr(Addr)) { PShell->Print("DeviceExists\r\n"); return retvOk; }
         char *PName;
-        if(PCmd->GetNextString(&PName) != retvOk) { PShell->Print("BadParam\r\n"); return; }
+        if(PCmd->GetNextString(&PName) != retvOk) { PShell->Print("BadParam\r\n"); return retvOk; }
         int Len = strlen(PName);
-        if(Len > DEV_NAME_LEN) { PShell->Print("BadParam\r\n"); return; }
+        if(Len > DEV_NAME_LEN) { PShell->Print("BadParam\r\n"); return retvOk; }
         // All is finally ok
         DevList.Add(Addr, (DevType_t)Type, PName);
         // Try to change real device parameters
@@ -244,12 +292,12 @@ void OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
 
     else if(PCmd->NameIs("PutDevice")) {
         uint8_t Addr = 0, Type = 0;
-        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->Print("BadParam\r\n"); return; }
-        if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return; }
+        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->Print("BadParam\r\n"); return retvOk; }
+        if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return retvOk; }
         char *PName;
-        if(PCmd->GetNextString(&PName) != retvOk) { PShell->Print("BadParam\r\n"); return; }
+        if(PCmd->GetNextString(&PName) != retvOk) { PShell->Print("BadParam\r\n"); return retvOk; }
         int Len = strlen(PName);
-        if(Len > DEV_NAME_LEN) { PShell->Print("BadParam\r\n"); return; }
+        if(Len > DEV_NAME_LEN) { PShell->Print("BadParam\r\n"); return retvOk; }
         // Params are ok
         Device_t* PDev = DevList.GetByAddr(Addr);
         if(PDev) { // Exists
@@ -257,7 +305,7 @@ void OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
             strcpy(PDev->Name, PName);
         }
         else { // Not exists, try to add
-            if(DevList.Cnt() >= DEV_CNT_MAX) { PShell->Print("TableFull\r\n"); return; }
+            if(DevList.Cnt() >= DEV_CNT_MAX) { PShell->Print("TableFull\r\n"); return retvOk; }
              DevList.Add(Addr, (DevType_t)Type, PName);
         }
         // Try to change real device parameters
@@ -268,7 +316,7 @@ void OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
 
     else if(PCmd->NameIs("DelDevice")) {
         uint8_t Addr = 0;
-        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk) { PShell->Print("BadParam\r\n"); return; }
+        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk) { PShell->Print("BadParam\r\n"); return retvOk; }
         if(DevList.Delete(Addr) == retvOk) {
             PShell->Ack(retvOk);
             DevList.Save();
@@ -288,9 +336,10 @@ void OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
             else if(CheckRslt == retvCollision) DevList[i].Print(PShell, " DifferentParams\n");
             else DevList[i].Print(PShell, " NoAnswer\n");
         }
-        PShell->Print("\r");
+        PShell->Print("\r\n");
     }
-    else OnCommonCmd(PShell, PCmd);
+    else return retvNotFound;
+    return retvOk;
 }
 
 void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
@@ -316,15 +365,9 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
     }
     else if(PCmd->NameIs("GetTypeName")) { PShell->Print("%u, %S\r\n", SelfInfo.Type, SelfInfo.Name); }
 #endif
-#if 1 // ==== Thermostating ====
-
-#endif
-    else OnCommonCmd(PShell, PCmd);
-}
-
-void OnCommonCmd(Shell_t *PShell, Cmd_t *PCmd) {
+#if 1 // ==== Common ====
     // ==== GPIO Reg ====
-    if(PCmd->NameIs("SetGPIO")) {
+    else if(PCmd->NameIs("SetGPIO")) {
          uint32_t Reg;
          if(PCmd->GetNext<uint32_t>(&Reg) != retvOk) { PShell->Print("BadParam\r\n"); return; }
          GpioReg.Set(Reg);
@@ -339,6 +382,17 @@ void OnCommonCmd(Shell_t *PShell, Cmd_t *PCmd) {
         PShell->Ack(Settings.Save());
    }
    else if(PCmd->NameIs("GetPowerOnGPIO")) { PShell->Print("GetPowerOnGPIO 0x%X\r\n", Settings.PowerOnGPIO); }
+
+#endif
+
+#if 1 // ==== Thermostating ====
+
+#endif
+
+}
+
+void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd) {
+    Printf("%S: %S\r\n", __FUNCTION__, PCmd->Name);
 }
 
 #endif

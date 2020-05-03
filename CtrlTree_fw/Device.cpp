@@ -14,12 +14,11 @@
 
 static const Device_t EmptyDevice;
 EE_t ee{&i2c1};
-extern CmdUart_t Uart;
 
 Device_t SelfInfo;
 Settings_t Settings;
 
-bool AddrIsOk(uint8_t Addr) {
+bool AddrIsOk(int32_t Addr) {
     return (Addr >= ADDR_MIN and Addr <= ADDR_MAX);
 }
 
@@ -35,7 +34,7 @@ Device_t::Device_t(uint8_t AAddr, DevType_t AType, const char* AName) {
 }
 
 void Device_t::Print(Shell_t *PShell, const char* S) const {
-    PShell->Print("%u, %u, %S%S", Addr, Type, Name, S);
+    PShell->Print("%u, %u, %S%S", (Type == devtHFBlock)? 0:Addr, Type, Name, S);
 }
 
 

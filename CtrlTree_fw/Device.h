@@ -11,7 +11,8 @@
 #include "shell.h"
 #include <deque>
 
-#define ADDR_MIN            1
+#define ADDR_MASTER         0
+#define ADDR_MIN            0
 #define ADDR_MAX            32
 #define DEV_CNT_MAX         32
 #define DEV_NAME_LEN        15
@@ -30,7 +31,7 @@ enum DevType_t : uint8_t {
     devtIKS = 6,
 };
 
-bool AddrIsOk(uint8_t Addr);
+bool AddrIsOk(int32_t Addr);
 bool TypeIsOk(uint8_t AType);
 
 class Device_t {
