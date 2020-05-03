@@ -380,6 +380,19 @@ void WRSPI(Shell_t *PShell, Cmd_t *PCmd, DevSpi_t &ASpi, const char* S) {
     PShell->Print("\r\n");
 }
 
+void wSpiFile(Shell_t *PShell, Cmd_t *PCmd, DevSpi_t &ASpi) {
+    uint8_t Params;
+    if(PCmd->GetNext<uint8_t>(&Params) != retvOk) { PShell->Print("BadParam\r\n"); return; }
+    uint32_t Len;
+    if(PCmd->GetNext<uint32_t>(&Len) != retvOk or Len > FILEBUF_SZ) { PShell->Print("BadParam\r\n"); return; }
+    // Receive data
+    if(PShell->ReceiveBinaryToBuf(FileBuf, Len, 9999) == retvOk) {
+        ASpi.Transmit(Params, FileBuf, Len);
+        PShell->Ack(0);
+    }
+    else PShell->Print("Timeout\r\n");
+}
+
 void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
 #if 1 // ==== Addr, type, name ====
     if(PCmd->NameIs("Ping")) PShell->Ack(retvOk);
@@ -424,6 +437,9 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
     // ==== SPI ====
     else if(PCmd->NameIs("WRSPI1")) WRSPI(PShell, PCmd, Spi1, "WRSPI1");
     else if(PCmd->NameIs("WRSPI2")) WRSPI(PShell, PCmd, Spi2, "WRSPI2");
+    else if(PCmd->NameIs("wSPIFile1")) wSpiFile(PShell, PCmd, Spi1);
+    else if(PCmd->NameIs("wSPIFile2")) wSpiFile(PShell, PCmd, Spi2);
+
 
 #endif
 

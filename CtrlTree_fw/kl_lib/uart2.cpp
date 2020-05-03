@@ -365,7 +365,7 @@ void BaseUart_t::Init() {
     dmaStreamEnable       (PDmaRx);
 
     // Enable IRQ on <LF>
-    Params->Uart->CR2 |= ((uint32_t)('\n')) << 24; // What to recoghize
+    Params->Uart->CR2 |= ((uint32_t)('\n')) << 24; // What to recognize
     Params->Uart->CR1 |= USART_CR1_CMIE; // Enable IRQ on match
     if(Params->Uart == USART1) nvicEnableVector(USART1_IRQn, IRQ_PRIO_LOW);
     else if(Params->Uart == USART2) nvicEnableVector(USART2_IRQn, IRQ_PRIO_LOW);
@@ -452,6 +452,43 @@ void BaseUart_t::OnClkChange() {
 #endif // Init
 
 #endif // Base UART
+
+uint8_t CmdUart_t::ReceiveBinaryToBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms) {
+    uint8_t Rslt = retvOk;
+    // Wait for previousTX to complete
+    dmaWaitCompletion(PDmaTx);
+    while(!(Params->Uart->ISR & USART_ISR_TXE));
+    Params->Uart->CR1 &= ~USART_CR1_UE; // Disable UART
+    Params->Uart->CR1 &= ~USART_CR1_CMIE; // Disable IRQ on char match
+    // Setup DMA to given buffer
+    dmaStreamDisable(PDmaRx);
+    dmaStreamSetMemory0(PDmaRx, ptr);
+    dmaStreamSetTransactionSize(PDmaRx, Len);
+    dmaStreamSetMode(PDmaRx, Params->DmaModeRx & (~STM32_DMA_CR_CIRC));
+    dmaStreamEnable(PDmaRx);
+    // Start transmission
+    Params->Uart->CR1 |= USART_CR1_UE; // Enable UART
+    systime_t Start = chVTGetSystemTimeX();
+    Params->Uart->TDR = '>';
+    while(PDmaRx->channel->CNDTR > 0U) {
+        if(chVTTimeElapsedSinceX(Start) > TIME_MS2I(Timeout_ms)) {
+            Rslt = retvTimeout;
+            break;
+        }
+    }
+    // Return to self buffer
+    Params->Uart->CR1 &= ~USART_CR1_UE; // Disable UART
+    dmaStreamDisable(PDmaRx);
+    dmaStreamSetMemory0(PDmaRx, IRxBuf);
+    dmaStreamSetTransactionSize(PDmaRx, UART_RXBUF_SZ);
+    dmaStreamSetMode(PDmaRx, Params->DmaModeRx);
+    Params->Uart->CR1 |= USART_CR1_CMIE; // Enable IRQ on match
+    dmaStreamEnable(PDmaRx);
+    // Reset RX buf pointer
+    RIndx = 0;
+    Params->Uart->CR1 |= USART_CR1_UE; // Enable UART
+    return Rslt;
+}
 
 #if BYTE_UART_EN // ========================= Byte UART ========================
 static const UartParams_t ByteUartParams = {

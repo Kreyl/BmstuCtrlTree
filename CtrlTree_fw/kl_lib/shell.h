@@ -1,7 +1,7 @@
 /*
  * shell.h
  *
- *  Created on: 25 окт. 2015 г.
+ *  Created on: 25 пїЅпїЅпїЅ. 2015 пїЅ.
  *      Author: Kreyl
  */
 
@@ -103,6 +103,7 @@ public:
 	virtual void Print(const char *format, ...) = 0;
 	void Reply(const char* CmdCode, int32_t Data) { Print("%S,%d\r\n", CmdCode, Data); }
 	void Ack(int32_t Result) { Print("Ack %d\r\n", Result); }
+	virtual uint8_t ReceiveBinaryToBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms) = 0;
 };
 
 

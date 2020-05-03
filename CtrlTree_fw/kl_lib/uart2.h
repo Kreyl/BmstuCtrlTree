@@ -59,7 +59,7 @@ protected:
     bool IDmaIsIdle;
     uint32_t IFullSlotsCount, ITransSize;
     void ISendViaDMA();
-    int32_t OldWIndx, RIndx;
+    int32_t RIndx;
     uint8_t IRxBuf[UART_RXBUF_SZ];
 protected:
     uint8_t IPutByte(uint8_t b);
@@ -68,7 +68,7 @@ protected:
     // ==== Constructor ====
     BaseUart_t(const UartParams_t &APParams) : Params(&APParams)
     , PRead(TXBuf), PWrite(TXBuf), IDmaIsIdle(true), IFullSlotsCount(0), ITransSize(0)
-    , OldWIndx(0), RIndx(0)
+    , RIndx(0)
     {}
 public:
     void Init();
@@ -105,6 +105,7 @@ public:
         } // while get byte
         return retvFail;
     }
+    uint8_t ReceiveBinaryToBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms);
 };
 
 class CmdUart485_t : public CmdUart_t {

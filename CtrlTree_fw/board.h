@@ -31,7 +31,7 @@
 #define ADC_REQUIRED            FALSE
 #define STM32_DMA_REQUIRED      TRUE    // Leave this macro name for OS
 
-#define FILEBUF_SZ              0x10000
+#define FILEBUF_SZ              65535
 
 #if 1 // ========================== GPIO =======================================
 // EXTI
