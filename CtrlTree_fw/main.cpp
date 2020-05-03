@@ -277,7 +277,7 @@ void OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
     }
 
     else if(PCmd->NameIs("GetAllStates")) {
-        PShell->Print("0, %u, %S, %X\n", SelfInfo.Type, SelfInfo.Name, 0); // Todo
+        PShell->Print("0, %u, %S, GPIO: %X\n", SelfInfo.Type, SelfInfo.Name, GpioReg.Get());
         for(int32_t i=0; i<DevList.Cnt(); i++) {
             uint8_t CheckRslt = DevList[i].Check();
             if(CheckRslt == retvOk) {
