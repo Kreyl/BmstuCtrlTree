@@ -11,24 +11,39 @@
 #include "shell.h"
 #include <deque>
 
-#define ADDR_MIN        1
-#define ADDR_MAX        254
-#define DEV_CNT_MAX     32
+#define ADDR_MIN            1
+#define ADDR_MAX            32
+#define DEV_CNT_MAX         32
+#define DEV_NAME_LEN        15
 
-#define TYPE_MIN        1
-#define TYPE_MAX        6
+#define EE_SELF_ADDR        0UL
+#define EE_SETTINGS_ADDR    (EE_SELF_ADDR + sizeof(Device_t))
+#define EE_DEVLIST_ADDR     128UL
 
-#define DEV_NAME_LEN    15
+enum DevType_t : uint8_t {
+    devtNone = 0,
+    devtHFBlock = 1,
+    devtLNA = 2,
+    devtKUKonv = 3,
+    devtMRL = 4,
+    devtTriplexer = 5,
+    devtIKS = 6,
+};
+
+bool AddrIsOk(uint8_t Addr);
+bool TypeIsOk(uint8_t AType);
 
 class Device_t {
 public:
     uint8_t Addr;
-    uint8_t Type;
+    DevType_t Type;
     char Name[DEV_NAME_LEN+1];
     void Print(Shell_t *PShell, const char* S) const;
     uint8_t Check() const;
-    Device_t() : Addr(0), Type(0), Name("") {}
-    Device_t(uint8_t AAddr, uint8_t AType, const char* AName);
+    Device_t() : Addr(0), Type(devtNone), Name("") {}
+    Device_t(uint8_t AAddr, DevType_t AType, const char* AName);
+    uint8_t Save(uint32_t MemAddr) const;
+    uint8_t Load(uint32_t MemAddr);
 } __attribute__((packed));
 
 class DeviceList_t {
@@ -39,8 +54,10 @@ public:
     Device_t& operator[](const int32_t AIndx);
     bool ContainsAddr(uint8_t Addr);
     Device_t* GetByAddr(uint8_t Addr);
-    void Add(uint8_t Addr, uint8_t Type, char* Name);
+    void Add(uint8_t Addr, DevType_t Type, char* Name);
     uint8_t Delete(uint8_t Addr);
     void Load();
     void Save();
 };
+
+extern Device_t SelfInfo;

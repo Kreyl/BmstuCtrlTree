@@ -8,7 +8,6 @@
 #include "led.h"
 #include "Sequences.h"
 #include "kl_i2c.h"
-#include "ee_i2c.h"
 #include "Device.h"
 
 #if 1 // ======================== Variables & prototypes =======================
@@ -28,13 +27,14 @@ CmdUart485_t RS485Ext{RS485ExtParams, RS485_EXT_TXEN};
 CmdUart_t RS232{RS232Params};
 
 bool UsbIsConnected = false;
-
 LedBlinker_t Led{LED_PIN};
-
 DeviceList_t DevList;
 
+void OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd);
+void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd);
+void OnCommonCmd(Shell_t *PShell, Cmd_t *PCmd);
+
 static TmrKL_t TmrOneSecond {TIME_MS2I(999), evtIdEverySecond, tktPeriodic}; // Measure battery periodically
-EE_t ee{&i2c1};
 #endif
 
 int main(void) {
@@ -62,6 +62,7 @@ int main(void) {
     i2c1.Init();
 //    i2c1.ScanBus();
 
+    SelfInfo.Load(EE_SELF_ADDR);
     DevList.Load();
 
     // Uarts
@@ -134,62 +135,42 @@ void ProcessUsbConnect(PinSnsState_t *PState, uint32_t Len) {
 void OnCmd(Shell_t *PShell) {
     Led.StartOrRestart(lsqCmd);
 	Cmd_t *PCmd = &PShell->Cmd;
-    // Handle command
-    if(PCmd->NameIs("Ping")) PShell->Ack(retvOk);
-    else if(PCmd->NameIs("Version")) PShell->Print("%S %S\r\n", APP_NAME, XSTRINGIFY(BUILD_TIME));
+#if 1 // ==== Direct commands ====
+    if(PCmd->NameIs("Version")) PShell->Print("%S %S\r\n", APP_NAME, XSTRINGIFY(BUILD_TIME));
     else if(PCmd->NameIs("mem")) PrintMemoryInfo();
 
-#if 1 // ==== Common ====
     else if(PCmd->NameIs("SetAddr")) {
-        uint8_t FAddr;
-        if(PCmd->GetNext<uint8_t>(&FAddr) != retvOk) { PShell->Ack(retvCmdError); return; }
-        if(FAddr < ADDR_MIN or FAddr > ADDR_MAX) { PShell->Ack(retvBadValue); return; }
-        // Save it
-//        if(ee.Write(EE_ADDR_ADDR, &FAddr, 1) == retvOk) {
-//            SelfInfo.Addr = FAddr;
-//            PShell->Ack(retvOk);
-//        }
-//        else PShell->Ack(retvFail);
+        uint8_t Addr;
+        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->Print("BadParam\r\n"); return; }
+        SelfInfo.Addr = Addr;
+        PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
     }
-    else if(PCmd->NameIs("GetAddr")) {
-//        PShell->Print("Addr %u\r\n", SelfInfo.Addr);
-    }
-
     else if(PCmd->NameIs("SetType")) {
-        uint8_t FAddr, FType;
-        if(PCmd->GetNext<uint8_t>(&FAddr) != retvOk) return;
-//        if(FAddr != SelfInfo.Addr) return; // ignore alien addresses
-        if(PCmd->GetNext<uint8_t>(&FType) != retvOk) { PShell->Ack(retvCmdError); return; }
-        if(FType < TYPE_MIN or FType > TYPE_MAX) { PShell->Ack(retvBadValue); return; }
-        // Save it
-//        if(ee.Write(EE_ADDR_TYPE, &FType, 1) == retvOk) {
-//            SelfInfo.Type = FType;
-//            PShell->Ack(retvOk);
-//        }
-//        else PShell->Ack(retvFail);
+        uint8_t Type;
+        if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return; }
+        SelfInfo.Type = (DevType_t)Type;
+        PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
     }
-
     else if(PCmd->NameIs("SetName")) {
-        uint8_t FAddr;
-        if(PCmd->GetNext<uint8_t>(&FAddr) != retvOk) return;
-//        if(FAddr != SelfInfo.Addr) return; // ignore alien addresses
-//        char *S;
-//        if(PCmd->GetNextString(&S) != retvOk) { PShell->Ack(retvCmdError); return; }
-//        strncpy(SelfInfo.Name, S, DEV_NAME_LEN);
-//        // Save it
-//        if(ee.Write(EE_ADDR_ADDR, &SelfInfo, sizeof(SelfInfo)) == retvOk) PShell->Ack(retvOk);
-//        else PShell->Ack(retvFail);
+        char *S;
+        if(PCmd->GetNextString(&S) != retvOk) { PShell->Ack(retvCmdError); return; }
+        strncpy(SelfInfo.Name, S, DEV_NAME_LEN);
+        PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
     }
-
-    else if(PCmd->NameIs("GetInfo")) {
-        uint8_t FAddr;
-        if(PCmd->GetNext<uint8_t>(&FAddr) != retvOk) return;
-//        if(FAddr != SelfInfo.Addr) return; // ignore alien addresses
-//        PShell->Print("Info %u, %u, \"%S\"\r\n", SelfInfo.Addr, SelfInfo.Type, SelfInfo.Name);
-    }
+    else if(PCmd->NameIs("GetInfo")) { SelfInfo.Print(PShell, "\r\n"); }
 #endif
+    // ==== Master commands ====
+    else if(SelfInfo.Type == devtHFBlock) OnMasterCmd(PShell, PCmd);
+    // ==== Slave commands ====
+    else {
+        // Check if address matches
+        uint8_t FAddr;
+        if(PCmd->GetNext<uint8_t>(&FAddr) == retvOk and FAddr == SelfInfo.Addr) OnSlaveCmd(PShell, PCmd);
+    }
+}
 
-#if 1 // ==== Master commands ====
+void OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
+    if(PCmd->NameIs("Ping")) PShell->Ack(retvOk);
     else if(PCmd->NameIs("Scan")) {
         // Todo
         PShell->Print("NoDevices\r\n");
@@ -211,23 +192,25 @@ void OnCmd(Shell_t *PShell) {
     else if(PCmd->NameIs("AddDevice")) {
         if(DevList.Cnt() >= DEV_CNT_MAX) { PShell->Print("TableFull\r\n"); return; }
         uint8_t Addr = 0, Type = 0;
-        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or (Addr < ADDR_MIN and Addr > ADDR_MAX)) { PShell->Print("BadParam\r\n"); return; }
-        if(PCmd->GetNext<uint8_t>(&Type) != retvOk or (Type < TYPE_MIN and Type > TYPE_MAX)) { PShell->Print("BadParam\r\n"); return; }
+        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->Print("BadParam\r\n"); return; }
+        if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return; }
         if(DevList.ContainsAddr(Addr)) { PShell->Print("DeviceExists\r\n"); return; }
         char *PName;
         if(PCmd->GetNextString(&PName) != retvOk) { PShell->Print("BadParam\r\n"); return; }
         int Len = strlen(PName);
         if(Len > DEV_NAME_LEN) { PShell->Print("BadParam\r\n"); return; }
         // All is finally ok
-        DevList.Add(Addr, Type, PName);
+        DevList.Add(Addr, (DevType_t)Type, PName);
+        // Try to change real device parameters
+        // Todo
         PShell->Ack(retvOk);
         DevList.Save();
     }
 
     else if(PCmd->NameIs("PutDevice")) {
         uint8_t Addr = 0, Type = 0;
-        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or (Addr < ADDR_MIN and Addr > ADDR_MAX)) { PShell->Print("BadParam\r\n"); return; }
-        if(PCmd->GetNext<uint8_t>(&Type) != retvOk or (Type < TYPE_MIN and Type > TYPE_MAX)) { PShell->Print("BadParam\r\n"); return; }
+        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->Print("BadParam\r\n"); return; }
+        if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return; }
         char *PName;
         if(PCmd->GetNextString(&PName) != retvOk) { PShell->Print("BadParam\r\n"); return; }
         int Len = strlen(PName);
@@ -235,13 +218,15 @@ void OnCmd(Shell_t *PShell) {
         // Params are ok
         Device_t* PDev = DevList.GetByAddr(Addr);
         if(PDev) { // Exists
-            PDev->Type = Type;
+            PDev->Type = (DevType_t)Type;
             strcpy(PDev->Name, PName);
         }
         else { // Not exists, try to add
             if(DevList.Cnt() >= DEV_CNT_MAX) { PShell->Print("TableFull\r\n"); return; }
-             DevList.Add(Addr, Type, PName);
+             DevList.Add(Addr, (DevType_t)Type, PName);
         }
+        // Try to change real device parameters
+        // Todo
         PShell->Ack(retvOk);
         DevList.Save();
     }
@@ -257,24 +242,53 @@ void OnCmd(Shell_t *PShell) {
     }
 
     else if(PCmd->NameIs("GetAllStates")) {
-        if(DevList.Cnt() == 0) PShell->Print("NoDevices\r\n");
-        else {
-            for(int32_t i=0; i<DevList.Cnt(); i++) {
-                uint8_t CheckRslt = DevList[i].Check();
-                if(CheckRslt == retvOk) {
-                    DevList[i].Print(PShell, ", ");
-                    //  todo: getstate
-                    PShell->Print("\n");
-                }
-                else if(CheckRslt == retvCollision) DevList[i].Print(PShell, " DifferentParams\n");
-                else DevList[i].Print(PShell, " NoAnswer\n");
+        PShell->Print("0, %u, %S, %X\n", SelfInfo.Type, SelfInfo.Name, 0); // Todo
+        for(int32_t i=0; i<DevList.Cnt(); i++) {
+            uint8_t CheckRslt = DevList[i].Check();
+            if(CheckRslt == retvOk) {
+                DevList[i].Print(PShell, ", ");
+                //  todo: getstate
+                PShell->Print("\n");
             }
-            PShell->Print("\r");
+            else if(CheckRslt == retvCollision) DevList[i].Print(PShell, " DifferentParams\n");
+            else DevList[i].Print(PShell, " NoAnswer\n");
         }
+        PShell->Print("\r");
     }
+    else OnCommonCmd(PShell, PCmd);
+}
+
+void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
+#if 1 // ==== Addr, type, name ====
+    if(PCmd->NameIs("Ping")) PShell->Ack(retvOk);
+    else if(PCmd->NameIs("ChangeAddr")) {
+        uint8_t Addr;
+        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->Print("BadParam\r\n"); return; }
+        SelfInfo.Addr = Addr;
+        PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
+    }
+    else if(PCmd->NameIs("ChangeType")) {
+        uint8_t Type;
+        if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return; }
+        SelfInfo.Type = (DevType_t)Type;
+        PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
+    }
+    else if(PCmd->NameIs("ChangeName")) {
+        char *S;
+        if(PCmd->GetNextString(&S) != retvOk) { PShell->Ack(retvCmdError); return; }
+        strncpy(SelfInfo.Name, S, DEV_NAME_LEN);
+        PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
+    }
+    else if(PCmd->NameIs("GetTypeName")) { PShell->Print("%u, %S\r\n", SelfInfo.Type, SelfInfo.Name); }
+#endif
+#if 1 // ==== Thermostating ====
 
 #endif
-
-    else PShell->Ack(retvCmdUnknown);
+    else OnCommonCmd(PShell, PCmd);
 }
+
+void OnCommonCmd(Shell_t *PShell, Cmd_t *PCmd) {
+
+}
+
 #endif

@@ -10,13 +10,24 @@
 #include "ee_i2c.h"
 #include "uart2.h"
 #include "shell.h"
+#include "kl_i2c.h"
 
 static const Device_t EmptyDevice;
-extern EE_t ee;
+EE_t ee{&i2c1};
 extern CmdUart_t Uart;
 
+Device_t SelfInfo;
+
+bool AddrIsOk(uint8_t Addr) {
+    return (Addr >= ADDR_MIN and Addr <= ADDR_MAX);
+}
+
+bool TypeIsOk(uint8_t AType) {
+    return (AType >= (uint8_t)devtHFBlock and AType <= (uint8_t)devtIKS);
+}
+
 #if 1 // ============================ Device ===================================
-Device_t::Device_t(uint8_t AAddr, uint8_t AType, const char* AName) {
+Device_t::Device_t(uint8_t AAddr, DevType_t AType, const char* AName) {
     Addr = AAddr;
     Type = AType;
     strcpy(Name, AName);
@@ -26,6 +37,16 @@ void Device_t::Print(Shell_t *PShell, const char* S) const {
     PShell->Print("%u, %u, %S%S", Addr, Type, Name, S);
 }
 
+
+uint8_t Device_t::Save(uint32_t MemAddr) const {
+    return ee.Write(MemAddr, (void*)this, sizeof(Device_t));
+}
+uint8_t Device_t::Load(uint32_t MemAddr) {
+    if(ee.Read(MemAddr, (void*)this, sizeof(Device_t)) == retvOk) {
+        return (AddrIsOk(Addr) and TypeIsOk((uint8_t)Type))? retvOk : retvFail;
+    }
+    else return retvFail;
+}
 
 uint8_t Device_t::Check() const {
     // Todo
@@ -54,7 +75,7 @@ bool DeviceList_t::ContainsAddr(uint8_t Addr) {
     return false;
 }
 
-void DeviceList_t::Add(uint8_t Addr, uint8_t Type, char* Name) {
+void DeviceList_t::Add(uint8_t Addr, DevType_t Type, char* Name) {
     IList.emplace_back(Addr, Type, Name);
 }
 
@@ -70,24 +91,25 @@ uint8_t DeviceList_t::Delete(uint8_t Addr) {
 
 void DeviceList_t::Load() {
     uint8_t Cnt = 0;
-    if(ee.Read<uint8_t>(0, &Cnt) != retvOk) return;
+    uint32_t MemAddr = EE_DEVLIST_ADDR;
+    if(ee.Read<uint8_t>(MemAddr, &Cnt) != retvOk) return;
     if(Cnt >= DEV_CNT_MAX) return; // too big Cnt
-    uint32_t MemAddr = 1;
+    MemAddr++;
     for(uint8_t i=0; i<Cnt; i++) {
         Device_t Dev;
-        if(ee.Read(MemAddr, &Dev, sizeof(Dev)) != retvOk) return;
+        if(Dev.Load(MemAddr) != retvOk) return;
         IList.push_back(Dev);
         MemAddr += sizeof(Dev);
     }
 }
 
 void DeviceList_t::Save() {
-    uint32_t MemAddr = 0;
+    uint32_t MemAddr = EE_DEVLIST_ADDR;
     uint8_t ACnt = IList.size();
     if(ee.Write<uint8_t>(MemAddr, &ACnt) != retvOk) return;
     MemAddr++;
     for(Device_t& Dev : IList) {
-        if(ee.Write(MemAddr, &Dev, sizeof(Dev)) != retvOk) return;
+        if(Dev.Save(MemAddr) != retvOk) return;
         MemAddr += sizeof(Dev);
     }
 }

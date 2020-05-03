@@ -112,7 +112,7 @@ public:
     }
 
     template <typename T>
-    uint8_t Write(uint8_t MemAddr, T *Ptr) const {
+    uint8_t Write(uint32_t MemAddr, T *Ptr) const {
         return Write(MemAddr, Ptr, sizeof(T));
     }
 };
