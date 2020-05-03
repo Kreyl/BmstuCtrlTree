@@ -366,7 +366,7 @@ uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
     return retvOk;
 }
 
-void WRSPI(Shell_t *PShell, Cmd_t *PCmd, DevSpi_t &ASpi, const char* S) {
+void WRSPI(Shell_t *PShell, Cmd_t *PCmd, DevSpi_t &ASpi) {
     uint8_t Params;
     if(PCmd->GetNext<uint8_t>(&Params) != retvOk) { PShell->Print("BadParam\r\n"); return; }
     uint8_t *p = FileBuf;
@@ -375,7 +375,7 @@ void WRSPI(Shell_t *PShell, Cmd_t *PCmd, DevSpi_t &ASpi, const char* S) {
     ASpi.Transmit(Params, FileBuf, Len);
     // Reply
     p = FileBuf;
-    PShell->Print("%S", S);
+    PShell->Print("%S", PCmd->Name);
     while(Len--) PShell->Print(" 0x%02X", *p++);
     PShell->Print("\r\n");
 }
@@ -391,6 +391,12 @@ void wSpiFile(Shell_t *PShell, Cmd_t *PCmd, DevSpi_t &ASpi) {
         PShell->Ack(0);
     }
     else PShell->Print("Timeout\r\n");
+}
+
+void rSpiFile(Shell_t *PShell, Cmd_t *PCmd, DevSpi_t &ASpi) {
+    uint32_t Len;
+    if(PCmd->GetNext<uint32_t>(&Len) != retvOk or Len > FILEBUF_SZ) { PShell->Print("BadParam\r\n"); return; }
+    if(PShell->TransmitBinaryFromBuf(FileBuf, Len, 9999) != retvOk) PShell->Print("Timeout\r\n");
 }
 
 void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
@@ -435,10 +441,12 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
     else if(PCmd->NameIs("GetPowerOnGPIO")) { PShell->Print("GetPowerOnGPIO 0x%X\r\n", Settings.PowerOnGPIO); }
 
     // ==== SPI ====
-    else if(PCmd->NameIs("WRSPI1")) WRSPI(PShell, PCmd, Spi1, "WRSPI1");
-    else if(PCmd->NameIs("WRSPI2")) WRSPI(PShell, PCmd, Spi2, "WRSPI2");
+    else if(PCmd->NameIs("WRSPI1")) WRSPI(PShell, PCmd, Spi1);
+    else if(PCmd->NameIs("WRSPI2")) WRSPI(PShell, PCmd, Spi2);
     else if(PCmd->NameIs("wSPIFile1")) wSpiFile(PShell, PCmd, Spi1);
     else if(PCmd->NameIs("wSPIFile2")) wSpiFile(PShell, PCmd, Spi2);
+    else if(PCmd->NameIs("rSpiFile1")) rSpiFile(PShell, PCmd, Spi1);
+    else if(PCmd->NameIs("rSpiFile2")) rSpiFile(PShell, PCmd, Spi2);
 
 
 #endif

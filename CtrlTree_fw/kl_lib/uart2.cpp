@@ -458,6 +458,7 @@ uint8_t CmdUart_t::ReceiveBinaryToBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeo
     // Wait for previousTX to complete
     dmaWaitCompletion(PDmaTx);
     while(!(Params->Uart->ISR & USART_ISR_TXE));
+    while(!(Params->Uart->ISR & USART_ISR_TC));
     Params->Uart->CR1 &= ~USART_CR1_UE; // Disable UART
     Params->Uart->CR1 &= ~USART_CR1_CMIE; // Disable IRQ on char match
     // Setup DMA to given buffer
@@ -488,6 +489,27 @@ uint8_t CmdUart_t::ReceiveBinaryToBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeo
     RIndx = 0;
     Params->Uart->CR1 |= USART_CR1_UE; // Enable UART
     return Rslt;
+}
+
+uint8_t CmdUart_t::TransmitBinaryFromBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms) {
+    systime_t Start = chVTGetSystemTimeX();
+    // Wait '>'
+    uint8_t b = 0;
+    while(b != '>') {
+        GetByte(&b);
+        if(chVTTimeElapsedSinceX(Start) > TIME_MS2I(Timeout_ms)) return retvTimeout;
+    }
+    // Wait for previousTX to complete
+    dmaWaitCompletion(PDmaTx);
+    while(!(Params->Uart->ISR & USART_ISR_TXE));
+    while(!(Params->Uart->ISR & USART_ISR_TC));
+    // Setup DMA to given buffer
+    dmaStreamSetMemory0(PDmaTx, ptr);
+    dmaStreamSetTransactionSize(PDmaTx, Len);
+    dmaStreamSetMode(PDmaTx, Params->DmaModeTx & (~STM32_DMA_CR_TCIE));
+    dmaStreamEnable(PDmaTx);
+    dmaWaitCompletion(PDmaTx);
+    return retvOk;
 }
 
 #if BYTE_UART_EN // ========================= Byte UART ========================

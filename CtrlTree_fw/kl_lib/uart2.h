@@ -106,6 +106,7 @@ public:
         return retvFail;
     }
     uint8_t ReceiveBinaryToBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms);
+    uint8_t TransmitBinaryFromBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms);
 };
 
 class CmdUart485_t : public CmdUart_t {
