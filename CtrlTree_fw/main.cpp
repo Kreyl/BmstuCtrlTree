@@ -37,6 +37,37 @@ void OnCommonCmd(Shell_t *PShell, Cmd_t *PCmd);
 static TmrKL_t TmrOneSecond {TIME_MS2I(999), evtIdEverySecond, tktPeriodic}; // Measure battery periodically
 #endif
 
+class GpioReg_t {
+private:
+    uint32_t IReg = 0;
+public:
+    void Set(uint32_t AReg) {
+        IReg = AReg;
+        uint32_t PortE = IReg & 0xFFFF; // Lower bits
+        uint32_t PortD = ((IReg >> 16) & 0x7FF) << 5; // higher bits
+        chSysLock();
+        PortD |= GPIOD->ODR & 0x1FUL; // Get values of lower bits of ODR
+        GPIOE->ODR = PortE;
+        GPIOD->ODR = PortD;
+        chSysUnlock();
+    }
+    uint32_t Get() { return IReg; }
+    void Init() {
+        // GPIOE
+        PinClockEnable(GPIOE);
+        GPIOE->OTYPER = 0;              // Push-Pull
+        GPIOE->PUPDR = 0;               // no PullUp/PullDown
+        GPIOE->OSPEEDR = 0x55555555;    // Medium speed
+        GPIOE->MODER = 0x55555555;      // Mode = output
+        // GPIOD
+        PinClockEnable(GPIOD);
+        GPIOD->OTYPER  = (GPIOD->OTYPER   & 0x001F); // Clear bits [5;15], do not touch [0;4]
+        GPIOD->PUPDR   = (GPIOD->PUPDR    & 0x000003FF); // Clear bits [5;15], do not touch [0;4]. No PullUp/PullDown
+        GPIOD->OSPEEDR = (GPIOD->OSPEEDR  & 0x000003FF) | 0x55555400; // Medium speed
+        GPIOD->MODER   = (GPIOD->MODER    & 0x000003FF) | 0x55555400; // Mode = output
+    }
+} GpioReg;
+
 int main(void) {
     // Setup clock frequency
     Clk.SetCoreClk(cclk48MHz); // Todo: start HSE depending on
@@ -64,6 +95,10 @@ int main(void) {
 
     SelfInfo.Load(EE_SELF_ADDR);
     DevList.Load();
+    Settings.Load();
+
+    GpioReg.Init();
+    GpioReg.Set(Settings.PowerOnGPIO);
 
     // Uarts
     RS485Ext.Init();
@@ -288,7 +323,22 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
 }
 
 void OnCommonCmd(Shell_t *PShell, Cmd_t *PCmd) {
+    // ==== GPIO Reg ====
+    if(PCmd->NameIs("SetGPIO")) {
+         uint32_t Reg;
+         if(PCmd->GetNext<uint32_t>(&Reg) != retvOk) { PShell->Print("BadParam\r\n"); return; }
+         GpioReg.Set(Reg);
+         PShell->Ack(retvOk);
+    }
+    else if(PCmd->NameIs("GetGPIO")) { PShell->Print("GetGPIO 0x%X\r\n", GpioReg.Get()); }
 
+    else if(PCmd->NameIs("SetPowerOnGPIO")) {
+        uint32_t Reg;
+        if(PCmd->GetNext<uint32_t>(&Reg) != retvOk) { PShell->Print("BadParam\r\n"); return; }
+        Settings.PowerOnGPIO = Reg;
+        PShell->Ack(Settings.Save());
+   }
+   else if(PCmd->NameIs("GetPowerOnGPIO")) { PShell->Print("GetPowerOnGPIO 0x%X\r\n", Settings.PowerOnGPIO); }
 }
 
 #endif

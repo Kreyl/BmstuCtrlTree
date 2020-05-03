@@ -60,4 +60,15 @@ public:
     void Save();
 };
 
+class Settings_t {
+public:
+    uint32_t PowerOnGPIO = 0;
+    uint8_t Tstating = 0;
+    float SynthPowerOnFreq = 0;
+    float SynthPowerOnPffset = 0;
+    uint8_t Load();
+    uint8_t Save();
+};
+
 extern Device_t SelfInfo;
+extern Settings_t Settings;

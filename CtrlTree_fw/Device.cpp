@@ -17,6 +17,7 @@ EE_t ee{&i2c1};
 extern CmdUart_t Uart;
 
 Device_t SelfInfo;
+Settings_t Settings;
 
 bool AddrIsOk(uint8_t Addr) {
     return (Addr >= ADDR_MIN and Addr <= ADDR_MAX);
@@ -114,4 +115,14 @@ void DeviceList_t::Save() {
     }
 }
 
+#endif
+
+#if 1 // ========================= Settings ====================================
+uint8_t Settings_t::Load() {
+    return ee.Read(EE_SETTINGS_ADDR, (void*)this, sizeof(Settings_t));
+}
+
+uint8_t Settings_t::Save() {
+    return ee.Write(EE_SETTINGS_ADDR, (void*)this, sizeof(Settings_t));
+}
 #endif
