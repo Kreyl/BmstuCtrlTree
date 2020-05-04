@@ -68,15 +68,15 @@ void BaseUart_t::EnableTCIrq(const uint32_t Priority, ftVoidVoid ACallback) {
 #endif
 
 #if 1 // ===== IRQs =====
+static BaseUart_t *IUart1=nullptr, *IUart2=nullptr, *IUart3=nullptr, *IUart4=nullptr, *IUart5=nullptr;
+
 extern "C" {
 void VectorD4() {   // USART1
     CH_IRQ_PROLOGUE();
     chSysLockFromISR();
     uint32_t SR = USART1->ISR;
-    if(SR & USART_ISR_CMF) {
-        USART1->ICR = USART_ICR_CMCF;
-        EvtQMain.SendNowOrExitI(EvtMsg_t(evtIdUartCmdRcvd, 1)); // 1 means USART1
-    }
+    USART1->ICR = 0x121BCF; // Clear flags
+    if(IUart1) IUart1->OnUartIrqI(SR);
     chSysUnlockFromISR();
     CH_IRQ_EPILOGUE();
 }
@@ -85,10 +85,8 @@ void VectorD8() {   // USART2
     CH_IRQ_PROLOGUE();
     chSysLockFromISR();
     uint32_t SR = USART2->ISR;
-    if(SR & USART_ISR_CMF) {
-        USART2->ICR = USART_ICR_CMCF;
-        EvtQMain.SendNowOrExitI(EvtMsg_t(evtIdUartCmdRcvd, 2));
-    }
+    USART2->ICR = 0x121BCF; // Clear flags
+    if(IUart2) IUart2->OnUartIrqI(SR);
     chSysUnlockFromISR();
     CH_IRQ_EPILOGUE();
 }
@@ -97,10 +95,8 @@ void VectorDC() {   // USART3
     CH_IRQ_PROLOGUE();
     chSysLockFromISR();
     uint32_t SR = USART3->ISR;
-    if(SR & USART_ISR_CMF) {
-        USART3->ICR = USART_ICR_CMCF;
-        EvtQMain.SendNowOrExitI(EvtMsg_t(evtIdUartCmdRcvd, 3));
-    }
+    USART3->ICR = 0x121BCF; // Clear flags
+    if(IUart3) IUart3->OnUartIrqI(SR);
     chSysUnlockFromISR();
     CH_IRQ_EPILOGUE();
 }
@@ -109,10 +105,8 @@ void Vector110() {   // UART4
     CH_IRQ_PROLOGUE();
     chSysLockFromISR();
     uint32_t SR = UART4->ISR;
-    if(SR & USART_ISR_CMF) {
-        UART4->ICR = USART_ICR_CMCF;
-        EvtQMain.SendNowOrExitI(EvtMsg_t(evtIdUartCmdRcvd, 4));
-    }
+    UART4->ICR = 0x121BCF; // Clear flags
+    if(IUart4) IUart4->OnUartIrqI(SR);
     chSysUnlockFromISR();
     CH_IRQ_EPILOGUE();
 }
@@ -120,10 +114,8 @@ void Vector114() {   // UART5
     CH_IRQ_PROLOGUE();
     chSysLockFromISR();
     uint32_t SR = UART5->ISR;
-    if(SR & USART_ISR_CMF) {
-        UART5->ICR = USART_ICR_CMCF;
-        EvtQMain.SendNowOrExitI(EvtMsg_t(evtIdUartCmdRcvd, 5));
-    }
+    UART5->ICR = 0x121BCF; // Clear flags
+    if(IUart5) IUart5->OnUartIrqI(SR);
     chSysUnlockFromISR();
     CH_IRQ_EPILOGUE();
 }
@@ -275,16 +267,16 @@ void BaseUart_t::Init() {
 #endif // Independent clock
 
 #if 1 // ==== Clock ====
-    if     (Params->Uart == USART1) { rccEnableUSART1(FALSE); }
-    else if(Params->Uart == USART2) { rccEnableUSART2(FALSE); }
+    if     (Params->Uart == USART1) { rccEnableUSART1(FALSE); IUart1 = this; }
+    else if(Params->Uart == USART2) { rccEnableUSART2(FALSE); IUart2 = this; }
 #if defined USART3
-    else if(Params->Uart == USART3) { rccEnableUSART3(FALSE); }
+    else if(Params->Uart == USART3) { rccEnableUSART3(FALSE); IUart3 = this; }
 #endif
 #if defined UART4
-    else if(Params->Uart == UART4) { rccEnableUART4(FALSE); }
+    else if(Params->Uart == UART4) { rccEnableUART4(FALSE); IUart4 = this; }
 #endif
 #if defined UART5
-    else if(Params->Uart == UART5) { rccEnableUART5(FALSE); }
+    else if(Params->Uart == UART5) { rccEnableUART5(FALSE); IUart5 = this; }
 #endif
 #if defined USART6
     else if(Params->Uart == USART6) { rccEnableUSART6(FALSE); }
@@ -453,6 +445,13 @@ void BaseUart_t::OnClkChange() {
 
 #endif // Base UART
 
+#if 1 // ========================== CMD UART ===================================
+void CmdUart_t::OnUartIrqI(uint32_t flags) {
+    if(flags & USART_ISR_CMF) {
+        EvtQMain.SendNowOrExitI(EvtMsg_t(evtIdUartCmdRcvd, (void*)this));
+    }
+}
+
 uint8_t CmdUart_t::ReceiveBinaryToBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms) {
     uint8_t Rslt = retvOk;
     // Wait for previousTX to complete
@@ -511,6 +510,39 @@ uint8_t CmdUart_t::TransmitBinaryFromBuf(uint8_t *ptr, uint32_t Len, uint32_t Ti
     dmaWaitCompletion(PDmaTx);
     return retvOk;
 }
+#endif
+
+#if 1 // ========================== HostUart485_t ==============================
+void HostUart485_t::OnUartIrqI(uint32_t flags) {
+    if(flags & USART_ISR_CMF) {
+        chThdResumeI(&ThdRef, MSG_OK); // NotNull check perfprmed inside chThdResumeI
+    }
+}
+
+void HostUart485_t::Print(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    IVsPrintf(format, args);
+    va_end(args);
+}
+
+uint8_t HostUart485_t::TryParseRxBuff() {
+    uint8_t b;
+    while(GetByte(&b) == retvOk) {
+        if(Reply.PutChar(b) == pdrNewCmd) return retvOk;
+    } // while get byte
+    return retvFail;
+}
+
+uint8_t HostUart485_t::SendCmd(uint32_t Timeout_ms, const char* ACmd, uint32_t Addr) {
+    chSysLock();
+    Print("%S %u\r\n", ACmd, Addr);
+    msg_t Rslt = chThdSuspendTimeoutS(&ThdRef, TIME_MS2I(Timeout_ms)); // Wait IRQ
+    chSysUnlock();  // Will be here when IRQ will fire, or timeout occur
+    if(Rslt == MSG_OK) return TryParseRxBuff();
+    else return retvTimeout;
+}
+#endif
 
 #if BYTE_UART_EN // ========================= Byte UART ========================
 static const UartParams_t ByteUartParams = {

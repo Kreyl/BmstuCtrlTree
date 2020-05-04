@@ -83,6 +83,7 @@ public:
     // Inner use
     void IRQDmaTxHandler();
     uint8_t GetByte(uint8_t *b);
+    virtual void OnUartIrqI(uint32_t flags) = 0;
 };
 
 class CmdUart_t : public BaseUart_t, public PrintfHelper_t, public Shell_t {
@@ -106,6 +107,7 @@ public:
     }
     uint8_t ReceiveBinaryToBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms);
     uint8_t TransmitBinaryFromBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms);
+    void OnUartIrqI(uint32_t flags);
 };
 
 class CmdUart485_t : public CmdUart_t {
@@ -125,21 +127,16 @@ public:
         CmdUart_t(APParams), PGpioDE(APGPIO), PinDE(APin), AltFuncDE(AAf) {}
 };
 
-
-class HostUart485_t : public BaseUart_t, public PrintfHelper_t {
+class HostUart485_t : private BaseUart_t, public PrintfHelper_t {
 private:
     GPIO_TypeDef *PGpioDE;
     uint16_t PinDE;
     AlterFunc_t AltFuncDE;
-
+    thread_reference_t ThdRef = nullptr;
     uint8_t IPutChar(char c) { return IPutByte(c);  }
     void IStartTransmissionIfNotYet() { BaseUart_t::IStartTransmissionIfNotYet(); }
-    void Print(const char *format, ...) {
-        va_list args;
-        va_start(args, format);
-        IVsPrintf(format, args);
-        va_end(args);
-    }
+    void Print(const char *format, ...);
+    uint8_t TryParseRxBuff();
 public:
     void Init() {
         BaseUart_t::Init();
@@ -151,6 +148,9 @@ public:
     HostUart485_t(const UartParams_t &APParams, GPIO_TypeDef *APGPIO, uint16_t APin, AlterFunc_t AAf) :
         BaseUart_t(APParams), PGpioDE(APGPIO), PinDE(APin), AltFuncDE(AAf) {}
 
+    uint8_t SendCmd(uint32_t Timeout_ms, const char* ACmd, uint32_t Addr);
+    Cmd_t Reply;
+    void OnUartIrqI(uint32_t flags);
 };
 
 

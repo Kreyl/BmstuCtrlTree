@@ -17,19 +17,25 @@ bool OsIsInitialized = false;
 EvtMsgQ_t<EvtMsg_t, MAIN_EVT_Q_LEN> EvtQMain;
 void OnCmd(Shell_t *PShell);
 void ITask();
+
 // Hoard of UARTs
 static const UartParams_t CmdUartParams(115200, CMD_UART_PARAMS);
 static const UartParams_t RS232Params(115200, RS232_PARAMS);
 static const UartParams_t RS485ExtParams(115200, RS485EXT_PARAMS);
-//static const UartParams_t RS485IntParams(115200, RS485INT_PARAMS);
+static const UartParams_t RS485IntParams(115200, RS485INT_PARAMS);
 
+// Control from outside
 __attribute__((section ("DATA_RAM")))
 CmdUart_t Uart{CmdUartParams};
 __attribute__((section ("DATA_RAM")))
 CmdUart485_t RS485Ext{RS485ExtParams, RS485_EXT_TXEN};
-//CmdUart485_t RS485Int{RS485IntParams, RS485_INT_TXEN};
 __attribute__((section ("DATA_RAM")))
 CmdUart_t RS232{RS232Params};
+// Internal host
+__attribute__((section ("DATA_RAM")))
+HostUart485_t RS485Int{RS485IntParams, RS485_INT_TXEN};
+#define SLAVE_TIMEOUT_ms        54UL
+#define SLAVE_TIMEOUT_LONG_ms   9999UL
 
 bool UsbIsConnected = false;
 LedBlinker_t Led{LED_PIN};
@@ -166,7 +172,7 @@ int main(void) {
 
     // Uarts
     RS485Ext.Init();
-//    RS485Int.Init();
+    RS485Int.Init();
     RS232.Init();
 
     UsbCDC.Init();
@@ -183,12 +189,7 @@ void ITask() {
         EvtMsg_t Msg = EvtQMain.Fetch(TIME_INFINITE);
         switch(Msg.ID) {
             case evtIdUartCmdRcvd:
-                switch(Msg.Value) {
-                    case 1: if(Uart.TryParseRxBuff()     == retvOk) OnCmd((Shell_t*)&Uart); break;
-                    case 2: if(RS485Ext.TryParseRxBuff() == retvOk) OnCmd((Shell_t*)&RS485Ext); break;
-//                    case 3: if(RS485Int.TryParseRxBuff() == retvOk) OnCmd((Shell_t*)&RS485Int); break;
-                    case 5: if(RS232.TryParseRxBuff()    == retvOk) OnCmd((Shell_t*)&RS232); break;
-                }
+                if(((CmdUart_t*)Msg.Ptr)->TryParseRxBuff() == retvOk) OnCmd((Shell_t*)((CmdUart_t*)Msg.Ptr));
                 break;
 
             case evtIdUsbCmdRcvd:
@@ -234,7 +235,7 @@ void ProcessUsbConnect(PinSnsState_t *PState, uint32_t Len) {
 void OnCmd(Shell_t *PShell) {
     Led.StartOrRestart(lsqCmd);
 	Cmd_t *PCmd = &PShell->Cmd;
-	Printf("Cmd: %S\r", PCmd->Name);
+//	Printf("Cmd: %S\r", PCmd->Name);
 #if 1 // ==== Direct commands ====
     if(PCmd->NameIs("Version")) PShell->Print("%S %S\r\n", APP_NAME, XSTRINGIFY(BUILD_TIME));
     else if(PCmd->NameIs("mem")) PrintMemoryInfo();
@@ -252,8 +253,8 @@ void OnCmd(Shell_t *PShell) {
         PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
     }
     else if(PCmd->NameIs("SetName")) {
-        char *S;
-        if(PCmd->GetNextString(&S) != retvOk) { PShell->Ack(retvCmdError); return; }
+        char *S =PCmd->GetNextString();
+        if(!S) { PShell->Ack(retvCmdError); return; }
         strncpy(SelfInfo.Name, S, DEV_NAME_LEN);
         PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
     }
@@ -280,19 +281,38 @@ void OnCmd(Shell_t *PShell) {
 
 uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
     if(PCmd->NameIs("Scan")) {
-        // Todo
-        PShell->Print("NoDevices\r\n");
+        PShell->Print("Addr Type Name\r\n");
+        bool SomeoneFound = false;
+        for(uint32_t i=ADDR_MIN; i<=ADDR_MAX; i++) {
+            if(i == ADDR_MASTER) continue;
+            if(RS485Int.SendCmd(SLAVE_TIMEOUT_ms, "GetTypeName", i) == retvOk) {
+               Printf("%4u    %S %S\n", i, RS485Int.Reply.GetNextString(), RS485Int.Reply.GetNextString());
+               SomeoneFound = true;
+            }
+        }
+        if(!SomeoneFound) PShell->Print("NoDevices\r\n");
     }
 
     else if(PCmd->NameIs("GetDeviceList")) {
         if(DevList.Cnt() == 0) PShell->Print("NoDevices\r\n");
         else {
+            uint32_t LongestNameLen = DevList.GetLongestNameLen();
+            PShell->Print("Addr Type %*S State\r\n", LongestNameLen, "Name");
             for(int32_t i=0; i<DevList.Cnt(); i++) {
-                uint8_t CheckRslt = DevList[i].Check();
-                if(CheckRslt == retvOk) DevList[i].Print(PShell, ", OK\n");
-                else if(CheckRslt == retvCollision) DevList[i].Print(PShell, " DifferentParams\n");
-                else DevList[i].Print(PShell, " NoAnswer\n");
-            }
+                Printf("%4u %4u %*S ", DevList[i].Addr, DevList[i].Type, LongestNameLen, DevList[i].Name);
+                if(RS485Int.SendCmd(SLAVE_TIMEOUT_ms, "GetTypeName", DevList[i].Addr) == retvOk) {
+                    // Check if type and name are same
+                    uint8_t Type = 0;
+                    if(RS485Int.Reply.GetNext<uint8_t>(&Type) == retvOk and Type == DevList[i].Type) {
+                        if(strcmp(RS485Int.Reply.GetNextString(), DevList[i].Name) == 0) {
+                            PShell->Print("OK\n");
+                            continue;
+                        }
+                    }
+                    PShell->Print("DifferentParams\n");
+                }
+                else PShell->Print("NoAnswer\n");
+            } // for
             PShell->Print("\r\n");
         }
     }
@@ -303,8 +323,8 @@ uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
         if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->Print("BadParam\r\n"); return retvOk; }
         if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return retvOk; }
         if(DevList.ContainsAddr(Addr)) { PShell->Print("DeviceExists\r\n"); return retvOk; }
-        char *PName;
-        if(PCmd->GetNextString(&PName) != retvOk) { PShell->Print("BadParam\r\n"); return retvOk; }
+        char *PName = PCmd->GetNextString();
+        if(!PName) { PShell->Print("BadParam\r\n"); return retvOk; }
         int Len = strlen(PName);
         if(Len > DEV_NAME_LEN) { PShell->Print("BadParam\r\n"); return retvOk; }
         // All is finally ok
@@ -319,8 +339,8 @@ uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
         uint8_t Addr = 0, Type = 0;
         if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->Print("BadParam\r\n"); return retvOk; }
         if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return retvOk; }
-        char *PName;
-        if(PCmd->GetNextString(&PName) != retvOk) { PShell->Print("BadParam\r\n"); return retvOk; }
+        char *PName = PCmd->GetNextString();
+        if(!PName) { PShell->Print("BadParam\r\n"); return retvOk; }
         int Len = strlen(PName);
         if(Len > DEV_NAME_LEN) { PShell->Print("BadParam\r\n"); return retvOk; }
         // Params are ok
@@ -350,17 +370,25 @@ uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
     }
 
     else if(PCmd->NameIs("GetAllStates")) {
-        PShell->Print("0, %u, %S, GPIO: %X\n", SelfInfo.Type, SelfInfo.Name, GpioReg.Get());
+        uint32_t LongestNameLen = DevList.GetLongestNameLen();
+        PShell->Print("Addr Type %*S State\r\n", LongestNameLen, "Name");
+        PShell->Print("%4u %4u %*S GPIO=0x%X\n", ADDR_MASTER, SelfInfo.Type, LongestNameLen, SelfInfo.Name, GpioReg.Get());
         for(int32_t i=0; i<DevList.Cnt(); i++) {
-            uint8_t CheckRslt = DevList[i].Check();
-            if(CheckRslt == retvOk) {
-                DevList[i].Print(PShell, ", ");
-                //  todo: getstate
-                PShell->Print("\n");
+            Printf("%4u %4u %*S ", DevList[i].Addr, DevList[i].Type, LongestNameLen, DevList[i].Name);
+            if(RS485Int.SendCmd(SLAVE_TIMEOUT_ms, "GetTypeName", DevList[i].Addr) == retvOk) {
+                // Check if type and name are same
+                uint8_t Type = 0;
+                if(RS485Int.Reply.GetNext<uint8_t>(&Type) == retvOk and Type == DevList[i].Type) {
+                    if(RS485Int.SendCmd(SLAVE_TIMEOUT_ms, "GetState", DevList[i].Addr) == retvOk) {
+                        PShell->Print("%S\n", RS485Int.Reply.GetNextString());
+                        continue;
+                    }
+                    else { PShell->Print("NoAnswer\n"); continue; }
+                }
+                PShell->Print("DifferentParams\n");
             }
-            else if(CheckRslt == retvCollision) DevList[i].Print(PShell, " DifferentParams\n");
-            else DevList[i].Print(PShell, " NoAnswer\n");
-        }
+            else PShell->Print("NoAnswer\n");
+        } // for
         PShell->Print("\r\n");
     }
     else return retvNotFound;
@@ -416,15 +444,14 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
     }
     else if(PCmd->NameIs("ChangeName")) {
-        char *S;
-        if(PCmd->GetNextString(&S) != retvOk) { PShell->Ack(retvCmdError); return; }
+        char *S = PCmd->GetNextString();
+        if(!S) { PShell->Ack(retvCmdError); return; }
         strncpy(SelfInfo.Name, S, DEV_NAME_LEN);
         PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
     }
-    else if(PCmd->NameIs("GetTypeName")) { PShell->Print("%u, %S\r\n", SelfInfo.Type, SelfInfo.Name); }
+    else if(PCmd->NameIs("GetTypeName")) { PShell->Print("GetTypeName %u %S\r\n", SelfInfo.Type, SelfInfo.Name); }
 #endif
-#if 1 // ==== Common ====
-    // ==== GPIO Reg ====
+#if 1 // ==== GPIO Reg ====
     else if(PCmd->NameIs("SetGPIO")) {
          uint32_t Reg;
          if(PCmd->GetNext<uint32_t>(&Reg) != retvOk) { PShell->Print("BadParam\r\n"); return; }
@@ -440,17 +467,30 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         PShell->Ack(Settings.Save());
     }
     else if(PCmd->NameIs("GetPowerOnGPIO")) { PShell->Print("GetPowerOnGPIO 0x%X\r\n", Settings.PowerOnGPIO); }
-
-    // ==== SPI ====
+#endif
+#if 1 // ==== SPI ====
     else if(PCmd->NameIs("WRSPI1")) WRSPI(PShell, PCmd, Spi1);
     else if(PCmd->NameIs("WRSPI2")) WRSPI(PShell, PCmd, Spi2);
     else if(PCmd->NameIs("wSPIFile1")) wSpiFile(PShell, PCmd, Spi1);
     else if(PCmd->NameIs("wSPIFile2")) wSpiFile(PShell, PCmd, Spi2);
     else if(PCmd->NameIs("rSpiFile1")) rSpiFile(PShell, PCmd, Spi1);
     else if(PCmd->NameIs("rSpiFile2")) rSpiFile(PShell, PCmd, Spi2);
-
-
 #endif
+
+    else if(PCmd->NameIs("GetState")) {
+        PShell->Print("GetState GPIO=0x%X", GpioReg.Get());
+        switch(SelfInfo.Type) {
+            case devtNone:
+            case devtHFBlock:
+                break;
+            case devtLNA:       break;
+            case devtKUKonv:    break;
+            case devtMRL:       break;
+            case devtTriplexer: break;
+            case devtIKS:       break;
+        }
+        PShell->Print("\r\n");
+    }
 
 #if 1 // ==== Thermostating ====
 
@@ -460,6 +500,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
 
 void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd) {
     Printf("%S: %S\r\n", __FUNCTION__, PCmd->Name);
+
 }
 
 #endif

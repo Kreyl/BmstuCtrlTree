@@ -40,7 +40,6 @@ public:
     DevType_t Type;
     char Name[DEV_NAME_LEN+1];
     void Print(Shell_t *PShell, const char* S) const;
-    uint8_t Check() const;
     Device_t() : Addr(0), Type(devtNone), Name("") {}
     Device_t(uint8_t AAddr, DevType_t AType, const char* AName);
     uint8_t Save(uint32_t MemAddr) const;
@@ -57,6 +56,7 @@ public:
     Device_t* GetByAddr(uint8_t Addr);
     void Add(uint8_t Addr, DevType_t Type, char* Name);
     uint8_t Delete(uint8_t Addr);
+    uint32_t GetLongestNameLen();
     void Load();
     void Save();
 };

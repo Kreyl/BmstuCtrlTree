@@ -34,7 +34,7 @@ Device_t::Device_t(uint8_t AAddr, DevType_t AType, const char* AName) {
 }
 
 void Device_t::Print(Shell_t *PShell, const char* S) const {
-    PShell->Print("%u, %u, %S%S", (Type == devtHFBlock)? 0:Addr, Type, Name, S);
+    PShell->Print("%u %u %S%S", (Type == devtHFBlock)? 0:Addr, Type, Name, S);
 }
 
 
@@ -47,12 +47,6 @@ uint8_t Device_t::Load(uint32_t MemAddr) {
     }
     else return retvFail;
 }
-
-uint8_t Device_t::Check() const {
-    // Todo
-    return retvOk;
-}
-
 #endif
 
 #if 1 // ======================== DeviceList ===================================
@@ -87,6 +81,15 @@ uint8_t DeviceList_t::Delete(uint8_t Addr) {
         }
     }
     return retvNotFound;
+}
+
+uint32_t DeviceList_t::GetLongestNameLen() {
+    uint32_t Len = strlen(SelfInfo.Name);
+    for(Device_t& Dev : IList) {
+        uint32_t NewLen = strlen(Dev.Name);
+        if(Len < NewLen) Len = NewLen;
+    }
+    return Len;
 }
 
 void DeviceList_t::Load() {

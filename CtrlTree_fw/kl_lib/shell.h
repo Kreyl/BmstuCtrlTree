@@ -42,22 +42,24 @@ public:
         else if(Cnt < (CMD_BUF_SZ-1)) IString[Cnt++] = c;  // Add char if buffer not full
         return pdrProceed;
     }
-    uint8_t GetNextString(char **PStr = nullptr) {
+
+    char* GetNextString() {
         Token = strtok(NULL, DELIMITERS);
-        if(PStr != nullptr) *PStr = Token;
-        return (*Token == '\0')? retvEmpty : retvOk;
+        return Token;
     }
 
     template <typename T>
     uint8_t GetNext(T *POutput) {
-        uint8_t r = GetNextString();
-        if(r == retvOk) {
+        if(GetNextString()) {
             char *p;
             int32_t dw32 = strtol(Token, &p, 0);
-            if(*p == '\0') *POutput = (T)dw32;
-            else r = retvNotANumber;
+            if(*p == '\0') {
+                *POutput = (T)dw32;
+                return retvOk;
+            }
+            else return retvNotANumber;
         }
-        return r;
+        return retvFail;
     }
 
     template <typename T>
