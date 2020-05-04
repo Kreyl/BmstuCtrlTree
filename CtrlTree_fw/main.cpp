@@ -42,7 +42,7 @@ bool UsbIsConnected = false;
 LedBlinker_t Led{LED_PIN};
 DeviceList_t DevList;
 
-uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd);
+uint8_t ProcessMasterCmd(Shell_t *PShell, Cmd_t *PCmd);
 void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd);
 void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd, uint32_t Addr);
 
@@ -285,7 +285,7 @@ void OnCmd(Shell_t *PShell) {
     else { // Command is not direct
         uint8_t FAddr;
         if(SelfInfo.Type == devtHFBlock) { // if we are master
-            if(OnMasterCmd(PShell, PCmd) != retvOk) { // if cmd was not found in master cmds
+            if(ProcessMasterCmd(PShell, PCmd) != retvOk) { // if cmd was not found in master cmds
                 if(PCmd->GetNext<uint8_t>(&FAddr) == retvOk) { // Got address
                     if(FAddr == ADDR_MASTER) OnSlaveCmd(PShell, PCmd); // Universal or slave cmd
                     else ProcessCmdForSlave(PShell, PCmd, FAddr);
@@ -301,14 +301,25 @@ void OnCmd(Shell_t *PShell) {
     } // not direct
 }
 
-uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
+void TryToChangeRealDeviceParams(Cmd_t *PCmd, uint8_t Addr, uint8_t Type, char *PName) {
+    if(RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "GetTypeName", Addr) == retvOk) {
+        uint8_t CurType;
+        if(RS485Int.Reply.GetNext<uint8_t>(&CurType) == retvOk) {
+            char *CurName = RS485Int.Reply.GetNextString();
+            if(strcmp(CurName, PName) != 0) RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "ChangeName", Addr, "%S", PName);
+            if(CurType != Type) RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "ChangeType", Addr, "%u", Type);
+        }
+    } // If device replied. Do nothing if not.
+}
+
+uint8_t ProcessMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
     if(PCmd->NameIs("Scan")) {
         PShell->Print("Addr Type Name\r\n");
         bool SomeoneFound = false;
         for(uint32_t i=ADDR_MIN; i<=ADDR_MAX; i++) {
             if(i == ADDR_MASTER) continue;
             if(RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "GetTypeName", i) == retvOk) {
-               Printf("%4u    %S %S\n", i, RS485Int.Reply.GetNextString(), RS485Int.Reply.GetNextString());
+                PShell->Print("%4u    %S %S\n", i, RS485Int.Reply.GetNextString(), RS485Int.Reply.GetNextString());
                SomeoneFound = true;
             }
         }
@@ -321,7 +332,7 @@ uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
             uint32_t LongestNameLen = DevList.GetLongestNameLen();
             PShell->Print("Addr Type %*S State\r\n", LongestNameLen, "Name");
             for(int32_t i=0; i<DevList.Cnt(); i++) {
-                Printf("%4u %4u %*S ", DevList[i].Addr, DevList[i].Type, LongestNameLen, DevList[i].Name);
+                PShell->Print("%4u %4u %*S ", DevList[i].Addr, DevList[i].Type, LongestNameLen, DevList[i].Name);
                 if(RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "GetTypeName", DevList[i].Addr) == retvOk) {
                     // Check if type and name are same
                     uint8_t Type = 0;
@@ -351,8 +362,7 @@ uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
         if(Len > DEV_NAME_LEN) { PShell->Print("BadParam\r\n"); return retvOk; }
         // All is finally ok
         DevList.Add(Addr, (DevType_t)Type, PName);
-        // Try to change real device parameters
-        // Todo
+        TryToChangeRealDeviceParams(PCmd, Addr, Type, PName);
         PShell->Ack(retvOk);
         DevList.Save();
     }
@@ -375,8 +385,7 @@ uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
             if(DevList.Cnt() >= DEV_CNT_MAX) { PShell->Print("TableFull\r\n"); return retvOk; }
              DevList.Add(Addr, (DevType_t)Type, PName);
         }
-        // Try to change real device parameters
-        // Todo
+        TryToChangeRealDeviceParams(PCmd, Addr, Type, PName);
         PShell->Ack(retvOk);
         DevList.Save();
     }
@@ -396,7 +405,7 @@ uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
         PShell->Print("Addr Type %*S State\r\n", LongestNameLen, "Name");
         PShell->Print("%4u %4u %*S GPIO: 0x%X\n", ADDR_MASTER, SelfInfo.Type, LongestNameLen, SelfInfo.Name, GpioReg.Get());
         for(int32_t i=0; i<DevList.Cnt(); i++) {
-            Printf("%4u %4u %*S ", DevList[i].Addr, DevList[i].Type, LongestNameLen, DevList[i].Name);
+            PShell->Print("%4u %4u %*S ", DevList[i].Addr, DevList[i].Type, LongestNameLen, DevList[i].Name);
             if(RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "GetTypeName", DevList[i].Addr) == retvOk) {
                 // Check if type and name are same
                 uint8_t Type = 0;
@@ -525,7 +534,6 @@ void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd, uint32_t Addr) {
         PShell->Print("%S %S\r\n", RS485Int.Reply.Name, RS485Int.Reply.GetRemainder());
     }
     else PShell->Print("NoAnswer\r\n");
-
 }
 
 #endif

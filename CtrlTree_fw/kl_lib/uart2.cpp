@@ -534,9 +534,14 @@ uint8_t HostUart485_t::TryParseRxBuff() {
     return retvFail;
 }
 
-uint8_t HostUart485_t::SendCmd(uint32_t Timeout_ms, const char* ACmd, uint32_t Addr, char* S) {
+uint8_t HostUart485_t::SendCmd(uint32_t Timeout_ms, const char* ACmd, uint32_t Addr, const char *format, ...) {
     chSysLock();
-    Print("%S %u %S\r\n", ACmd, Addr, S);
+    Print("%S %u ", ACmd, Addr);
+    va_list args;
+    va_start(args, format);
+    IVsPrintf(format, args);
+    va_end(args);
+    PrintEOL();
     msg_t Rslt = chThdSuspendTimeoutS(&ThdRef, TIME_MS2I(Timeout_ms)); // Wait IRQ
     chSysUnlock();  // Will be here when IRQ will fire, or timeout occur
     if(Rslt == MSG_OK) return TryParseRxBuff();

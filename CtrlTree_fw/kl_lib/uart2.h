@@ -136,6 +136,7 @@ private:
     uint8_t IPutChar(char c) { return IPutByte(c);  }
     void IStartTransmissionIfNotYet() { BaseUart_t::IStartTransmissionIfNotYet(); }
     void Print(const char *format, ...);
+    void PrintEOL() { IPutByte('\r'); IPutByte('\n'); }
     uint8_t TryParseRxBuff();
 public:
     void Init() {
@@ -148,7 +149,7 @@ public:
     HostUart485_t(const UartParams_t &APParams, GPIO_TypeDef *APGPIO, uint16_t APin, AlterFunc_t AAf) :
         BaseUart_t(APParams), PGpioDE(APGPIO), PinDE(APin), AltFuncDE(AAf) {}
 
-    uint8_t SendCmd(uint32_t Timeout_ms, const char* ACmd, uint32_t Addr, char* S = nullptr);
+    uint8_t SendCmd(uint32_t Timeout_ms, const char* ACmd, uint32_t Addr, const char *format = nullptr, ...);
     Cmd_t Reply;
     void OnUartIrqI(uint32_t flags);
 };

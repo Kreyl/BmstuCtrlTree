@@ -11,8 +11,9 @@
 #include <stdarg.h>
 #include "kl_lib.h"
 
-#define CMD_BUF_SZ		99
-#define DELIMITERS      " ,"
+#define CMD_BUF_SZ		        1024
+#define DELIMITERS              " ,"
+#define PREV_CHAR_TIMEOUT_ms    180UL
 
 enum ProcessDataResult_t {pdrProceed, pdrNewCmd};
 
@@ -21,7 +22,8 @@ private:
     char IString[CMD_BUF_SZ];
     uint32_t Cnt;
     bool Completed;
-
+    systime_t LastCharTimestamp = 0;
+    // Inner strtok
     char* last = nullptr;
     char* IStrTok(register char* s, register const char* delim) {
         if(s == nullptr and (s = last) == nullptr) return nullptr;
@@ -54,11 +56,12 @@ private:
 public:
     char *Name;
     ProcessDataResult_t PutChar(char c) {
-        // Reset cmd if it was completed, and after that new char arrived
-        if(Completed) {
+        // Reset cmd: (1) if it was completed and after that new char arrived (2) if new char has come after long pause
+        if(Completed or chVTTimeElapsedSinceX(LastCharTimestamp) > TIME_MS2I(PREV_CHAR_TIMEOUT_ms)) {
             Completed = false;
             Cnt = 0;
         }
+        LastCharTimestamp = chVTGetSystemTimeX();
         // Process char
         if(c == '\b') { if(Cnt > 0) Cnt--; }    // do backspace
         else if((c == '\r') or (c == '\n')) {   // end of line, check if cmd completed
