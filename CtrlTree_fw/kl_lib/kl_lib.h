@@ -1957,8 +1957,9 @@ public:
     void SetupBusDividers(AHBDiv_t AHBDiv, APBDiv_t APB1Div, APBDiv_t APB2Div);
 
     // PLL and PLLSAI
-    void SetupPllSrc(PllSrc_t Src) { MODIFY_REG(RCC->PLLCFGR, RCC_PLLCFGR_PLLSRC, ((uint32_t)Src)); }
     uint8_t SetupM(uint32_t M);
+    void SetupPllSrc(PllSrc_t PllSrc);
+    PllSrc_t GetPllSrc();
     uint8_t SetupPll(uint32_t N, uint32_t R, uint32_t Q);
     void SetupPllSai1(uint32_t N, uint32_t R, uint32_t Q, uint32_t P);
     void SetupPllSai2(uint32_t N, uint32_t R, uint32_t P);
@@ -1967,10 +1968,11 @@ public:
     void EnableSai1POut() { SET_BIT(RCC->PLLSAI1CFGR, RCC_PLLSAI1CFGR_PLLSAI1PEN); }
 
     void UpdateFreqValues();
-    void EnablePrefeth() { FLASH->ACR |= FLASH_ACR_PRFTEN | FLASH_ACR_DCEN | FLASH_ACR_ICEN; }
+    void EnablePrefetch() { FLASH->ACR |= FLASH_ACR_PRFTEN | FLASH_ACR_DCEN | FLASH_ACR_ICEN; }
     void SetupFlashLatency(uint8_t AHBClk_MHz, MCUVoltRange_t VoltRange);
     void SetVoltageRange(MCUVoltRange_t VoltRange);
     void SetupSai1Qas48MhzSrc();
+    void SetupPllQas48MhzSrc();
     // LSI
     void EnableLSI() {
         RCC->CSR |= RCC_CSR_LSION;
@@ -2152,7 +2154,7 @@ public:
     void SetupPllSai(uint32_t N, uint32_t P, uint32_t Q, uint32_t R);
 
     void UpdateFreqValues();
-    void EnablePrefeth() { FLASH->ACR |= FLASH_ACR_PRFTEN | FLASH_ACR_PRFTEN; }
+    void EnablePrefetch() { FLASH->ACR |= FLASH_ACR_PRFTEN | FLASH_ACR_PRFTEN; }
     void SetupFlashLatency(uint8_t AHBClk_MHz, uint32_t MCUVoltage_mv);
     void SetVoltageScale(MCUVoltScale_t VoltScale);
     void Setup48Mhz();

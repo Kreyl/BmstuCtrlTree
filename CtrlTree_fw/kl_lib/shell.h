@@ -21,8 +21,38 @@ private:
     char IString[CMD_BUF_SZ];
     uint32_t Cnt;
     bool Completed;
+
+    char* last = nullptr;
+    char* IStrTok(register char* s, register const char* delim) {
+        if(s == nullptr and (s = last) == nullptr) return nullptr;
+        register char* spanp;
+        // Skip leading delimiters
+        cont:
+        register char c = *s++, sc;
+        for(spanp = (char*)delim; (sc = *spanp++) != 0;) {
+            if(c == sc) goto cont;
+        }
+
+        if(c == 0) {    // no non-delimiter characters left, but string ended
+            last = nullptr;
+            return nullptr;
+        }
+        char* tok = s - 1;
+        while(true) {
+            c = *s++;
+            spanp = (char*)delim;
+            do {
+                if((sc = *spanp++) == c) {
+                    if(c == 0) s = nullptr;
+                    else *(s-1) = 0;
+                    last = s;
+                    return tok;
+                }
+            } while (sc != 0);
+        }
+    }
 public:
-    char *Name, *Token;
+    char *Name;
     ProcessDataResult_t PutChar(char c) {
         // Reset cmd if it was completed, and after that new char arrived
         if(Completed) {
@@ -34,7 +64,7 @@ public:
         else if((c == '\r') or (c == '\n')) {   // end of line, check if cmd completed
             if(Cnt != 0) {  // if cmd is not empty
                 IString[Cnt] = 0; // End of string
-                Name = strtok(IString, DELIMITERS);
+                Name = IStrTok(IString, DELIMITERS);
                 Completed = true;
                 return pdrNewCmd;
             }
@@ -43,16 +73,16 @@ public:
         return pdrProceed;
     }
 
-    char* GetNextString() {
-        Token = strtok(NULL, DELIMITERS);
-        return Token;
-    }
+    char* GetNextString() { return IStrTok(nullptr, DELIMITERS); }
+
+    char* GetRemainder() { return last; }
 
     template <typename T>
     uint8_t GetNext(T *POutput) {
-        if(GetNextString()) {
+        char* S = GetNextString();
+        if(S) {
             char *p;
-            int32_t dw32 = strtol(Token, &p, 0);
+            int32_t dw32 = strtol(S, &p, 0);
             if(*p == '\0') {
                 *POutput = (T)dw32;
                 return retvOk;
@@ -95,7 +125,6 @@ public:
         Cnt = 0;
         Completed = false;
         Name = nullptr;
-        Token = nullptr;
     }
 };
 

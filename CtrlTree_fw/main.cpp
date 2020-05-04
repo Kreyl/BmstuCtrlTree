@@ -34,7 +34,8 @@ CmdUart_t RS232{RS232Params};
 // Internal host
 __attribute__((section ("DATA_RAM")))
 HostUart485_t RS485Int{RS485IntParams, RS485_INT_TXEN};
-#define SLAVE_TIMEOUT_ms        54UL
+#define SLAVE_TIMEOUT_SHORT_ms  54UL
+#define SLAVE_TIMEOUT_MID_ms    360UL
 #define SLAVE_TIMEOUT_LONG_ms   9999UL
 
 bool UsbIsConnected = false;
@@ -43,7 +44,7 @@ DeviceList_t DevList;
 
 uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd);
 void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd);
-void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd);
+void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd, uint32_t Addr);
 
 static TmrKL_t TmrOneSecond {TIME_MS2I(999), evtIdEverySecond, tktPeriodic}; // Measure battery periodically
 __attribute__((section ("DATA_RAM")))
@@ -134,10 +135,29 @@ DevSpi_t Spi2{SPI2, GPIOB, 13,14,15,12, AF5};
 #endif
 
 int main(void) {
-    // Setup clock frequency
-    Clk.SetCoreClk(cclk48MHz); // Todo: start HSE depending on
-    Clk.SetupSai1Qas48MhzSrc();
+#if 1 // ==== Setup clock frequency ====
+    Clk.EnablePrefetch();
+    Clk.SetVoltageRange(mvrHiPerf);
+    Clk.SetupFlashLatency(48, mvrHiPerf);
+    // Try quartz
+    if(Clk.EnableHSE() == retvOk) {
+        Clk.SetupPllSrc(pllsrcHse);
+        Clk.SetupPll(8, 2, 2); // 12MHz / 1 = 12; 12 * 8 / 2 => 48
+    }
+    else { // Quartz failed
+        Clk.SetupPllSrc(pllsrcMsi);
+        Clk.SetupPll(24, 2, 2); // 4MHz / 1 = 4; 4 * 24 / 2 => 48
+    }
+    // Try start PLL
+    if(Clk.EnablePLL() == retvOk) {
+        Clk.EnablePllROut();
+        Clk.EnablePllQOut();
+        Clk.SwitchToPLL();
+        Clk.SetupPllQas48MhzSrc();
+    }
     Clk.UpdateFreqValues();
+#endif
+
     // Init OS
     halInit();
     chSysInit();
@@ -147,6 +167,8 @@ int main(void) {
     EvtQMain.Init();
     Uart.Init();
     Printf("\r%S %S\r", APP_NAME, XSTRINGIFY(BUILD_TIME));
+    if(Clk.GetPllSrc() == pllsrcHse) Printf("Quartz ok\r\n");
+    else Printf("No Quartz\r\n");
     Clk.PrintFreqs();
 
     Led.Init();
@@ -265,13 +287,13 @@ void OnCmd(Shell_t *PShell) {
         if(SelfInfo.Type == devtHFBlock) { // if we are master
             if(OnMasterCmd(PShell, PCmd) != retvOk) { // if cmd was not found in master cmds
                 if(PCmd->GetNext<uint8_t>(&FAddr) == retvOk) { // Got address
-                    if(FAddr == ADDR_MASTER) OnSlaveCmd(PShell, PCmd);
-                    else ProcessCmdForSlave(PShell, PCmd);
+                    if(FAddr == ADDR_MASTER) OnSlaveCmd(PShell, PCmd); // Universal or slave cmd
+                    else ProcessCmdForSlave(PShell, PCmd, FAddr);
                 }
                 else PShell->Print("BadParam\r\n");
             }
         }
-        else { // We are Slave
+        else { // We are slave
             if(PCmd->GetNext<uint8_t>(&FAddr) == retvOk and FAddr == SelfInfo.Addr) {
                 OnSlaveCmd(PShell, PCmd);
             }
@@ -285,7 +307,7 @@ uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
         bool SomeoneFound = false;
         for(uint32_t i=ADDR_MIN; i<=ADDR_MAX; i++) {
             if(i == ADDR_MASTER) continue;
-            if(RS485Int.SendCmd(SLAVE_TIMEOUT_ms, "GetTypeName", i) == retvOk) {
+            if(RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "GetTypeName", i) == retvOk) {
                Printf("%4u    %S %S\n", i, RS485Int.Reply.GetNextString(), RS485Int.Reply.GetNextString());
                SomeoneFound = true;
             }
@@ -300,7 +322,7 @@ uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
             PShell->Print("Addr Type %*S State\r\n", LongestNameLen, "Name");
             for(int32_t i=0; i<DevList.Cnt(); i++) {
                 Printf("%4u %4u %*S ", DevList[i].Addr, DevList[i].Type, LongestNameLen, DevList[i].Name);
-                if(RS485Int.SendCmd(SLAVE_TIMEOUT_ms, "GetTypeName", DevList[i].Addr) == retvOk) {
+                if(RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "GetTypeName", DevList[i].Addr) == retvOk) {
                     // Check if type and name are same
                     uint8_t Type = 0;
                     if(RS485Int.Reply.GetNext<uint8_t>(&Type) == retvOk and Type == DevList[i].Type) {
@@ -372,15 +394,15 @@ uint8_t OnMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
     else if(PCmd->NameIs("GetAllStates")) {
         uint32_t LongestNameLen = DevList.GetLongestNameLen();
         PShell->Print("Addr Type %*S State\r\n", LongestNameLen, "Name");
-        PShell->Print("%4u %4u %*S GPIO=0x%X\n", ADDR_MASTER, SelfInfo.Type, LongestNameLen, SelfInfo.Name, GpioReg.Get());
+        PShell->Print("%4u %4u %*S GPIO: 0x%X\n", ADDR_MASTER, SelfInfo.Type, LongestNameLen, SelfInfo.Name, GpioReg.Get());
         for(int32_t i=0; i<DevList.Cnt(); i++) {
             Printf("%4u %4u %*S ", DevList[i].Addr, DevList[i].Type, LongestNameLen, DevList[i].Name);
-            if(RS485Int.SendCmd(SLAVE_TIMEOUT_ms, "GetTypeName", DevList[i].Addr) == retvOk) {
+            if(RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "GetTypeName", DevList[i].Addr) == retvOk) {
                 // Check if type and name are same
                 uint8_t Type = 0;
                 if(RS485Int.Reply.GetNext<uint8_t>(&Type) == retvOk and Type == DevList[i].Type) {
-                    if(RS485Int.SendCmd(SLAVE_TIMEOUT_ms, "GetState", DevList[i].Addr) == retvOk) {
-                        PShell->Print("%S\n", RS485Int.Reply.GetNextString());
+                    if(RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "GetState", DevList[i].Addr) == retvOk) {
+                        PShell->Print("%S\n", RS485Int.Reply.GetRemainder());
                         continue;
                     }
                     else { PShell->Print("NoAnswer\n"); continue; }
@@ -478,7 +500,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
 #endif
 
     else if(PCmd->NameIs("GetState")) {
-        PShell->Print("GetState GPIO=0x%X", GpioReg.Get());
+        PShell->Print("GetState GPIO: 0x%X", GpioReg.Get());
         switch(SelfInfo.Type) {
             case devtNone:
             case devtHFBlock:
@@ -495,11 +517,14 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
 #if 1 // ==== Thermostating ====
 
 #endif
-
 }
 
-void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd) {
-    Printf("%S: %S\r\n", __FUNCTION__, PCmd->Name);
+void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd, uint32_t Addr) {
+//    Printf("%S: %S\r\n", __FUNCTION__, PCmd->Name);
+    if(RS485Int.SendCmd(SLAVE_TIMEOUT_MID_ms, PCmd->Name, Addr, PCmd->GetRemainder()) == retvOk) {
+        PShell->Print("%S %S\r\n", RS485Int.Reply.Name, RS485Int.Reply.GetRemainder());
+    }
+    else PShell->Print("NoAnswer\r\n");
 
 }
 

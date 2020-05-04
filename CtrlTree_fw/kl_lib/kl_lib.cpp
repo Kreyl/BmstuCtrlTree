@@ -2424,7 +2424,7 @@ void Clk_t::SetupFlashLatency(uint8_t AHBClk_MHz, MCUVoltRange_t VoltRange) {
 }
 
 void Clk_t::SetCoreClk(CoreClk_t CoreClk) {
-    EnablePrefeth();
+    EnablePrefetch();
     // First, switch to MSI if clock src is not MSI
     if((RCC->CFGR & RCC_CFGR_SWS) != RCC_CFGR_SWS_MSI) {
         if(SwitchToMSI() != retvOk) return;
@@ -2510,6 +2510,18 @@ uint8_t Clk_t::SetupM(uint32_t M) {
     return retvOk;
 }
 
+void Clk_t::SetupPllSrc(PllSrc_t PllSrc) {
+    uint32_t tmp = RCC->PLLCFGR;
+    tmp &= ~RCC_PLLCFGR_PLLSRC;
+    tmp |= (uint32_t)PllSrc;
+    RCC->PLLCFGR = tmp;
+}
+
+PllSrc_t Clk_t::GetPllSrc() {
+    uint32_t tmp = RCC->PLLCFGR & RCC_PLLCFGR_PLLSRC;
+    return (PllSrc_t)tmp;
+}
+
 // M: 1...8; N: 8...86; R: 2,4,6,8
 uint8_t Clk_t::SetupPll(uint32_t N, uint32_t R, uint32_t Q) {
     if(!((N >= 8 and N <= 86) and (R == 2 or R == 4 or R == 6 or R == 8))) return retvBadValue;
@@ -2518,9 +2530,8 @@ uint8_t Clk_t::SetupPll(uint32_t N, uint32_t R, uint32_t Q) {
     Q = (Q / 2) - 1;    // 2,4,6,8 => 0,1,2,3
     uint32_t tmp = RCC->PLLCFGR;
     tmp &= ~(RCC_PLLCFGR_PLLR | RCC_PLLCFGR_PLLREN | RCC_PLLCFGR_PLLQ | RCC_PLLCFGR_PLLQEN |
-            RCC_PLLCFGR_PLLP | RCC_PLLCFGR_PLLPEN | RCC_PLLCFGR_PLLN | RCC_PLLCFGR_PLLSRC);
-    tmp |= RCC_PLLCFGR_PLLSRC_HSE | // Use only HSE as src
-            (N << 8) |
+            RCC_PLLCFGR_PLLP | RCC_PLLCFGR_PLLPEN | RCC_PLLCFGR_PLLN);
+    tmp |=  (N << 8) |
             (R << 25) |
             (Q << 21);
     RCC->PLLCFGR = tmp;
@@ -2583,6 +2594,13 @@ void Clk_t::SetupSai1Qas48MhzSrc() {
         tmp |= ((uint32_t)src48PllSai1Q) << 26;
         RCC->CCIPR = tmp;
     }
+}
+
+void Clk_t::SetupPllQas48MhzSrc() {
+    uint32_t tmp = RCC->CCIPR;
+    tmp &= ~RCC_CCIPR_CLK48SEL;
+    tmp |= ((uint32_t)src48PllQ) << 26;
+    RCC->CCIPR = tmp;
 }
 
 // ==== Enable/Disable ====
@@ -2828,7 +2846,7 @@ void Clk_t::SwitchToPLL() {
 }
 
 void Clk_t::SetCoreClk80MHz() {
-    EnablePrefeth();
+    EnablePrefetch();
     // First, switch to HSI if clock src is not HSI
     if((RCC->CFGR & RCC_CFGR_SWS) != RCC_CFGR_SWS_HSI) SwitchToHSI();
     // Disable PLL and SAI, enable HSE

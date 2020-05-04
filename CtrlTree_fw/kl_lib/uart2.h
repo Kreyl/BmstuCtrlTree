@@ -148,7 +148,7 @@ public:
     HostUart485_t(const UartParams_t &APParams, GPIO_TypeDef *APGPIO, uint16_t APin, AlterFunc_t AAf) :
         BaseUart_t(APParams), PGpioDE(APGPIO), PinDE(APin), AltFuncDE(AAf) {}
 
-    uint8_t SendCmd(uint32_t Timeout_ms, const char* ACmd, uint32_t Addr);
+    uint8_t SendCmd(uint32_t Timeout_ms, const char* ACmd, uint32_t Addr, char* S = nullptr);
     Cmd_t Reply;
     void OnUartIrqI(uint32_t flags);
 };
