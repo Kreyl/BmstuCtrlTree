@@ -61,7 +61,6 @@ protected:
     void ISendViaDMA();
     int32_t RIndx;
     uint8_t IRxBuf[UART_RXBUF_SZ];
-protected:
     uint8_t IPutByte(uint8_t b);
     uint8_t IPutByteNow(uint8_t b);
     void IStartTransmissionIfNotYet();

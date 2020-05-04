@@ -234,6 +234,7 @@ void ProcessUsbConnect(PinSnsState_t *PState, uint32_t Len) {
 void OnCmd(Shell_t *PShell) {
     Led.StartOrRestart(lsqCmd);
 	Cmd_t *PCmd = &PShell->Cmd;
+	Printf("Cmd: %S\r", PCmd->Name);
 #if 1 // ==== Direct commands ====
     if(PCmd->NameIs("Version")) PShell->Print("%S %S\r\n", APP_NAME, XSTRINGIFY(BUILD_TIME));
     else if(PCmd->NameIs("mem")) PrintMemoryInfo();
