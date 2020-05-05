@@ -55,9 +55,9 @@ protected:
     const stm32_dma_stream_t *PDmaRx = nullptr;
     const UartParams_t *Params;
     char TXBuf[UART_TXBUF_SZ];
-    char *PRead, *PWrite;
-    bool IDmaIsIdle;
-    uint32_t IFullSlotsCount, ITransSize;
+    volatile char *PRead, *PWrite;
+    volatile bool IDmaIsIdle;
+    volatile uint32_t IFullSlotsCount, ITransSize;
     void ISendViaDMA();
     int32_t RIndx;
     uint8_t IRxBuf[UART_RXBUF_SZ];
@@ -80,6 +80,7 @@ public:
     void DisableRx() { Params->Uart->CR1 &= ~USART_CR1_RE; }
     void FlushTx() { while(!IDmaIsIdle) chThdSleepMilliseconds(1); }  // wait DMA
     void EnableTCIrq(const uint32_t Priority, ftVoidVoid ACallback);
+    void SetReplyEndChar(char c);
     // Inner use
     void IRQDmaTxHandler();
     uint8_t GetByte(uint8_t *b);
@@ -87,7 +88,7 @@ public:
 };
 
 class CmdUart_t : public BaseUart_t, public PrintfHelper_t, public Shell_t {
-private:
+protected:
     uint8_t IPutChar(char c) { return IPutByte(c);  }
     void IStartTransmissionIfNotYet() { BaseUart_t::IStartTransmissionIfNotYet(); }
     void Print(const char *format, ...) {
@@ -98,6 +99,8 @@ private:
     }
 public:
     CmdUart_t(const UartParams_t &APParams) : BaseUart_t(APParams) {}
+    uint8_t ReceiveBinaryToBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms);
+    uint8_t TransmitBinaryFromBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms);
     uint8_t TryParseRxBuff() {
         uint8_t b;
         while(GetByte(&b) == retvOk) {
@@ -105,8 +108,6 @@ public:
         } // while get byte
         return retvFail;
     }
-    uint8_t ReceiveBinaryToBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms);
-    uint8_t TransmitBinaryFromBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms);
     void OnUartIrqI(uint32_t flags);
 };
 
@@ -127,30 +128,18 @@ public:
         CmdUart_t(APParams), PGpioDE(APGPIO), PinDE(APin), AltFuncDE(AAf) {}
 };
 
-class HostUart485_t : private BaseUart_t, public PrintfHelper_t {
+class HostUart485_t : private CmdUart485_t {
 private:
-    GPIO_TypeDef *PGpioDE;
-    uint16_t PinDE;
-    AlterFunc_t AltFuncDE;
     thread_reference_t ThdRef = nullptr;
-    uint8_t IPutChar(char c) { return IPutByte(c);  }
-    void IStartTransmissionIfNotYet() { BaseUart_t::IStartTransmissionIfNotYet(); }
-    void Print(const char *format, ...);
-    void PrintEOL() { IPutByte('\r'); IPutByte('\n'); }
     uint8_t TryParseRxBuff();
 public:
-    void Init() {
-        BaseUart_t::Init();
-                PinSetupAlterFunc(PGpioDE, PinDE, omPushPull, pudNone, AltFuncDE);
-                Params->Uart->CR1 &= ~USART_CR1_UE;   // Disable USART
-                Params->Uart->CR3 |= USART_CR3_DEM;   // Enable DriverEnable signal
-                Params->Uart->CR1 |= USART_CR1_UE;    // Enable USART
-    }
+    void Init() { CmdUart485_t::Init(); }
     HostUart485_t(const UartParams_t &APParams, GPIO_TypeDef *APGPIO, uint16_t APin, AlterFunc_t AAf) :
-        BaseUart_t(APParams), PGpioDE(APGPIO), PinDE(APin), AltFuncDE(AAf) {}
-
+        CmdUart485_t(APParams, APGPIO, APin, AAf) {}
     uint8_t SendCmd(uint32_t Timeout_ms, const char* ACmd, uint32_t Addr, const char *format = nullptr, ...);
-    Cmd_t Reply;
+    uint8_t SendCmdAndTransmitBuf(uint32_t Timeout_ms, uint8_t *PBuf, uint32_t Len, const char* ACmd, uint32_t Addr, const char *format = nullptr, ...);
+    uint8_t SendCmdAndReceiveBuf(uint32_t Timeout_ms, uint8_t *PBuf, uint32_t Len, const char* ACmd, uint32_t Addr, const char *format = nullptr, ...);
+    Cmd_t &Reply = Cmd;
     void OnUartIrqI(uint32_t flags);
 };
 

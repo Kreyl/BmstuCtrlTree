@@ -135,8 +135,15 @@ class Shell_t {
 public:
 	Cmd_t Cmd;
 	virtual void Print(const char *format, ...) = 0;
-	void Reply(const char* CmdCode, int32_t Data) { Print("%S,%d\r\n", CmdCode, Data); }
-	void Ack(int32_t Result) { Print("Ack %d\r\n", Result); }
+//	void Reply(const char* CmdCode, int32_t Data) { Print("%S,%d\r\n", CmdCode, Data); }
+//	void Ack(int32_t Result) { Print("Ack %d\r\n", Result); }
+	void Ok()  { Print("Ok\r\n"); }
+	void BadParam() { Print("BadParam\r\n"); }
+	void CRCError() { Print("CRCError\r\n"); }
+	void Failure() { Print("Failure\r\n"); }
+	void Timeout() { Print("Timeout\r\n"); }
+	void NoAnswer() { Print("NoAnswer\r\n"); }
+	void EOL() { Print("\r\n"); }
 	virtual uint8_t ReceiveBinaryToBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms) = 0;
 	virtual uint8_t TransmitBinaryFromBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms) = 0;
 };

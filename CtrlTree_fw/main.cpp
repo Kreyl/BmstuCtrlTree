@@ -34,9 +34,9 @@ CmdUart_t RS232{RS232Params};
 // Internal host
 __attribute__((section ("DATA_RAM")))
 HostUart485_t RS485Int{RS485IntParams, RS485_INT_TXEN};
-#define SLAVE_TIMEOUT_SHORT_ms  54UL
-#define SLAVE_TIMEOUT_MID_ms    360UL
-#define SLAVE_TIMEOUT_LONG_ms   9999UL
+#define TIMEOUT_SHORT_ms  54UL
+#define TIMEOUT_MID_ms    360UL
+#define TIMEOUT_LONG_ms   9999UL
 
 bool UsbIsConnected = false;
 LedBlinker_t Led{LED_PIN};
@@ -254,6 +254,11 @@ void ProcessUsbConnect(PinSnsState_t *PState, uint32_t Len) {
 }
 
 #if 1 // ======================= Command processing ============================
+void TryToSaveSelfInfo(Shell_t *PShell) {
+    if(SelfInfo.Save(EE_SELF_ADDR) == retvOk) PShell->Ok();
+    else PShell->Failure();
+}
+
 void OnCmd(Shell_t *PShell) {
     Led.StartOrRestart(lsqCmd);
 	Cmd_t *PCmd = &PShell->Cmd;
@@ -266,19 +271,19 @@ void OnCmd(Shell_t *PShell) {
         uint8_t Addr;
         if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->Print("BadParam\r\n"); return; }
         SelfInfo.Addr = Addr;
-        PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
+        TryToSaveSelfInfo(PShell);
     }
     else if(PCmd->NameIs("SetType")) {
         uint8_t Type;
         if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return; }
         SelfInfo.Type = (DevType_t)Type;
-        PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
+        TryToSaveSelfInfo(PShell);
     }
     else if(PCmd->NameIs("SetName")) {
         char *S =PCmd->GetNextString();
-        if(!S) { PShell->Ack(retvCmdError); return; }
-        strncpy(SelfInfo.Name, S, DEV_NAME_LEN);
-        PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
+        if(!S or strlen(S) > DEV_NAME_LEN) { PShell->BadParam(); return; }
+        strcpy(SelfInfo.Name, S);
+        TryToSaveSelfInfo(PShell);
     }
     else if(PCmd->NameIs("GetInfo")) { SelfInfo.Print(PShell, "\r\n"); }
 #endif
@@ -290,7 +295,7 @@ void OnCmd(Shell_t *PShell) {
                     if(FAddr == ADDR_MASTER) OnSlaveCmd(PShell, PCmd); // Universal or slave cmd
                     else ProcessCmdForSlave(PShell, PCmd, FAddr);
                 }
-                else PShell->Print("BadParam\r\n");
+                else PShell->BadParam();
             }
         }
         else { // We are slave
@@ -302,12 +307,12 @@ void OnCmd(Shell_t *PShell) {
 }
 
 void TryToChangeRealDeviceParams(Cmd_t *PCmd, uint8_t Addr, uint8_t Type, char *PName) {
-    if(RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "GetTypeName", Addr) == retvOk) {
+    if(RS485Int.SendCmd(TIMEOUT_SHORT_ms, "GetTypeName", Addr) == retvOk) {
         uint8_t CurType;
         if(RS485Int.Reply.GetNext<uint8_t>(&CurType) == retvOk) {
             char *CurName = RS485Int.Reply.GetNextString();
-            if(strcmp(CurName, PName) != 0) RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "ChangeName", Addr, "%S", PName);
-            if(CurType != Type) RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "ChangeType", Addr, "%u", Type);
+            if(strcmp(CurName, PName) != 0) RS485Int.SendCmd(TIMEOUT_SHORT_ms, "ChangeName", Addr, "%S", PName);
+            if(CurType != Type) RS485Int.SendCmd(TIMEOUT_SHORT_ms, "ChangeType", Addr, "%u", Type);
         }
     } // If device replied. Do nothing if not.
 }
@@ -318,7 +323,7 @@ uint8_t ProcessMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
         bool SomeoneFound = false;
         for(uint32_t i=ADDR_MIN; i<=ADDR_MAX; i++) {
             if(i == ADDR_MASTER) continue;
-            if(RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "GetTypeName", i) == retvOk) {
+            if(RS485Int.SendCmd(TIMEOUT_SHORT_ms, "GetTypeName", i) == retvOk) {
                 PShell->Print("%4u    %S %S\n", i, RS485Int.Reply.GetNextString(), RS485Int.Reply.GetNextString());
                SomeoneFound = true;
             }
@@ -333,7 +338,7 @@ uint8_t ProcessMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
             PShell->Print("Addr Type %*S State\r\n", LongestNameLen, "Name");
             for(int32_t i=0; i<DevList.Cnt(); i++) {
                 PShell->Print("%4u %4u %*S ", DevList[i].Addr, DevList[i].Type, LongestNameLen, DevList[i].Name);
-                if(RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "GetTypeName", DevList[i].Addr) == retvOk) {
+                if(RS485Int.SendCmd(TIMEOUT_SHORT_ms, "GetTypeName", DevList[i].Addr) == retvOk) {
                     // Check if type and name are same
                     uint8_t Type = 0;
                     if(RS485Int.Reply.GetNext<uint8_t>(&Type) == retvOk and Type == DevList[i].Type) {
@@ -344,37 +349,37 @@ uint8_t ProcessMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
                     }
                     PShell->Print("DifferentParams\n");
                 }
-                else PShell->Print("NoAnswer\n");
+                else PShell->Print("NoAnswer\n"); // Notice \n here
             } // for
-            PShell->Print("\r\n");
+            PShell->EOL();
         }
     }
 
     else if(PCmd->NameIs("AddDevice")) {
         if(DevList.Cnt() >= DEV_CNT_MAX) { PShell->Print("TableFull\r\n"); return retvOk; }
         uint8_t Addr = 0, Type = 0;
-        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->Print("BadParam\r\n"); return retvOk; }
-        if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return retvOk; }
+        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->BadParam(); return retvOk; }
+        if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->BadParam(); return retvOk; }
         if(DevList.ContainsAddr(Addr)) { PShell->Print("DeviceExists\r\n"); return retvOk; }
         char *PName = PCmd->GetNextString();
-        if(!PName) { PShell->Print("BadParam\r\n"); return retvOk; }
+        if(!PName) { PShell->BadParam(); return retvOk; }
         int Len = strlen(PName);
-        if(Len > DEV_NAME_LEN) { PShell->Print("BadParam\r\n"); return retvOk; }
+        if(Len > DEV_NAME_LEN) { PShell->BadParam(); return retvOk; }
         // All is finally ok
         DevList.Add(Addr, (DevType_t)Type, PName);
         TryToChangeRealDeviceParams(PCmd, Addr, Type, PName);
-        PShell->Ack(retvOk);
+        PShell->Ok();
         DevList.Save();
     }
 
     else if(PCmd->NameIs("PutDevice")) {
         uint8_t Addr = 0, Type = 0;
-        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->Print("BadParam\r\n"); return retvOk; }
-        if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return retvOk; }
+        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->BadParam(); return retvOk; }
+        if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->BadParam(); return retvOk; }
         char *PName = PCmd->GetNextString();
-        if(!PName) { PShell->Print("BadParam\r\n"); return retvOk; }
+        if(!PName) { PShell->BadParam(); return retvOk; }
         int Len = strlen(PName);
-        if(Len > DEV_NAME_LEN) { PShell->Print("BadParam\r\n"); return retvOk; }
+        if(Len > DEV_NAME_LEN) { PShell->BadParam(); return retvOk; }
         // Params are ok
         Device_t* PDev = DevList.GetByAddr(Addr);
         if(PDev) { // Exists
@@ -386,15 +391,15 @@ uint8_t ProcessMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
              DevList.Add(Addr, (DevType_t)Type, PName);
         }
         TryToChangeRealDeviceParams(PCmd, Addr, Type, PName);
-        PShell->Ack(retvOk);
+        PShell->Ok();
         DevList.Save();
     }
 
     else if(PCmd->NameIs("DelDevice")) {
         uint8_t Addr = 0;
-        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk) { PShell->Print("BadParam\r\n"); return retvOk; }
+        if(PCmd->GetNext<uint8_t>(&Addr) != retvOk) { PShell->BadParam(); return retvOk; }
         if(DevList.Delete(Addr) == retvOk) {
-            PShell->Ack(retvOk);
+            PShell->Ok();
             DevList.Save();
         }
         else PShell->Print("NoDevices\r\n");
@@ -406,106 +411,104 @@ uint8_t ProcessMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
         PShell->Print("%4u %4u %*S GPIO: 0x%X\n", ADDR_MASTER, SelfInfo.Type, LongestNameLen, SelfInfo.Name, GpioReg.Get());
         for(int32_t i=0; i<DevList.Cnt(); i++) {
             PShell->Print("%4u %4u %*S ", DevList[i].Addr, DevList[i].Type, LongestNameLen, DevList[i].Name);
-            if(RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "GetTypeName", DevList[i].Addr) == retvOk) {
+            if(RS485Int.SendCmd(TIMEOUT_SHORT_ms, "GetTypeName", DevList[i].Addr) == retvOk) {
                 // Check if type and name are same
                 uint8_t Type = 0;
                 if(RS485Int.Reply.GetNext<uint8_t>(&Type) == retvOk and Type == DevList[i].Type) {
-                    if(RS485Int.SendCmd(SLAVE_TIMEOUT_SHORT_ms, "GetState", DevList[i].Addr) == retvOk) {
+                    if(RS485Int.SendCmd(TIMEOUT_SHORT_ms, "GetState", DevList[i].Addr) == retvOk) {
                         PShell->Print("%S\n", RS485Int.Reply.GetRemainder());
                         continue;
                     }
-                    else { PShell->Print("NoAnswer\n"); continue; }
+                    else { PShell->Print("NoAnswer\n"); continue; } // Notice \n here
                 }
                 PShell->Print("DifferentParams\n");
             }
-            else PShell->Print("NoAnswer\n");
+            else PShell->Print("NoAnswer\n"); // Notice \n here
         } // for
-        PShell->Print("\r\n");
+        PShell->EOL();
     }
     else return retvNotFound;
     return retvOk;
 }
 
-void WRSPI(Shell_t *PShell, Cmd_t *PCmd, DevSpi_t &ASpi) {
-    uint8_t Params;
-    if(PCmd->GetNext<uint8_t>(&Params) != retvOk) { PShell->Print("BadParam\r\n"); return; }
-    uint8_t *p = FileBuf;
-    while(PCmd->GetNext<uint8_t>(p) == retvOk) p++; // Get what to send
-    uint32_t Len = p - FileBuf;
-    ASpi.Transmit(Params, FileBuf, Len);
-    // Reply
-    p = FileBuf;
-    PShell->Print("%S", PCmd->Name);
-    while(Len--) PShell->Print(" 0x%02X", *p++);
-    PShell->Print("\r\n");
-}
-
-void wSpiFile(Shell_t *PShell, Cmd_t *PCmd, DevSpi_t &ASpi) {
-    uint8_t Params;
-    if(PCmd->GetNext<uint8_t>(&Params) != retvOk) { PShell->Print("BadParam\r\n"); return; }
-    uint32_t Len;
-    if(PCmd->GetNext<uint32_t>(&Len) != retvOk or Len > FILEBUF_SZ) { PShell->Print("BadParam\r\n"); return; }
-    // Receive data
-    if(PShell->ReceiveBinaryToBuf(FileBuf, Len, 9999) == retvOk) {
-        ASpi.Transmit(Params, FileBuf, Len);
-        PShell->Ack(0);
-    }
-    else PShell->Print("Timeout\r\n");
-}
-
-void rSpiFile(Shell_t *PShell, Cmd_t *PCmd, DevSpi_t &ASpi) {
-    uint32_t Len;
-    if(PCmd->GetNext<uint32_t>(&Len) != retvOk or Len > FILEBUF_SZ) { PShell->Print("BadParam\r\n"); return; }
-    if(PShell->TransmitBinaryFromBuf(FileBuf, Len, 9999) != retvOk) PShell->Print("Timeout\r\n");
-}
-
 void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
 #if 1 // ==== Addr, type, name ====
-    if(PCmd->NameIs("Ping")) PShell->Ack(retvOk);
+    if(PCmd->NameIs("Ping")) PShell->Ok();
     else if(PCmd->NameIs("ChangeAddr")) {
         uint8_t Addr;
         if(PCmd->GetNext<uint8_t>(&Addr) != retvOk or !AddrIsOk(Addr)) { PShell->Print("BadParam\r\n"); return; }
         SelfInfo.Addr = Addr;
-        PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
+        TryToSaveSelfInfo(PShell);
     }
     else if(PCmd->NameIs("ChangeType")) {
         uint8_t Type;
         if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return; }
         SelfInfo.Type = (DevType_t)Type;
-        PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
+        TryToSaveSelfInfo(PShell);
     }
     else if(PCmd->NameIs("ChangeName")) {
         char *S = PCmd->GetNextString();
-        if(!S) { PShell->Ack(retvCmdError); return; }
-        strncpy(SelfInfo.Name, S, DEV_NAME_LEN);
-        PShell->Ack(SelfInfo.Save(EE_SELF_ADDR));
+        if(!S or strlen(S) > DEV_NAME_LEN) { PShell->BadParam(); return; }
+        strcpy(SelfInfo.Name, S);
+        TryToSaveSelfInfo(PShell);
     }
     else if(PCmd->NameIs("GetTypeName")) { PShell->Print("GetTypeName %u %S\r\n", SelfInfo.Type, SelfInfo.Name); }
 #endif
 #if 1 // ==== GPIO Reg ====
     else if(PCmd->NameIs("SetGPIO")) {
          uint32_t Reg;
-         if(PCmd->GetNext<uint32_t>(&Reg) != retvOk) { PShell->Print("BadParam\r\n"); return; }
+         if(PCmd->GetNext<uint32_t>(&Reg) != retvOk) { PShell->BadParam(); return; }
          GpioReg.Set(Reg);
-         PShell->Ack(retvOk);
+         PShell->Ok();
     }
     else if(PCmd->NameIs("GetGPIO")) { PShell->Print("GetGPIO 0x%X\r\n", GpioReg.Get()); }
 
     else if(PCmd->NameIs("SetPowerOnGPIO")) {
         uint32_t Reg;
-        if(PCmd->GetNext<uint32_t>(&Reg) != retvOk) { PShell->Print("BadParam\r\n"); return; }
+        if(PCmd->GetNext<uint32_t>(&Reg) != retvOk) { PShell->BadParam(); return; }
         Settings.PowerOnGPIO = Reg;
-        PShell->Ack(Settings.Save());
+        if(Settings.Save() == retvOk) PShell->Ok();
+        else PShell->Failure();
     }
     else if(PCmd->NameIs("GetPowerOnGPIO")) { PShell->Print("GetPowerOnGPIO 0x%X\r\n", Settings.PowerOnGPIO); }
 #endif
 #if 1 // ==== SPI ====
-    else if(PCmd->NameIs("WRSPI1")) WRSPI(PShell, PCmd, Spi1);
-    else if(PCmd->NameIs("WRSPI2")) WRSPI(PShell, PCmd, Spi2);
-    else if(PCmd->NameIs("wSPIFile1")) wSpiFile(PShell, PCmd, Spi1);
-    else if(PCmd->NameIs("wSPIFile2")) wSpiFile(PShell, PCmd, Spi2);
-    else if(PCmd->NameIs("rSpiFile1")) rSpiFile(PShell, PCmd, Spi1);
-    else if(PCmd->NameIs("rSpiFile2")) rSpiFile(PShell, PCmd, Spi2);
+    else if(PCmd->NameIs("WRSPI")) {
+        uint8_t Params;
+        if(PCmd->GetNext<uint8_t>(&Params) != retvOk) { PShell->BadParam(); return; }
+        uint8_t *p = FileBuf;
+        while(PCmd->GetNext<uint8_t>(p) == retvOk) p++; // Get what to send
+        uint32_t Len = p - FileBuf;
+        if(Params & 0x10) Spi2.Transmit(Params, FileBuf, Len);
+        else Spi1.Transmit(Params, FileBuf, Len);
+        // Reply
+        p = FileBuf;
+        PShell->Print("%S", PCmd->Name);
+        while(Len--) PShell->Print(" 0x%02X", *p++);
+        PShell->EOL();
+    }
+
+    else if(PCmd->NameIs("wSPIFile")) {
+        uint8_t Params;
+        if(PCmd->GetNext<uint8_t>(&Params) != retvOk) { PShell->BadParam(); return; }
+        uint32_t Len;
+        if(PCmd->GetNext<uint32_t>(&Len) != retvOk or Len > FILEBUF_SZ) { PShell->BadParam(); return; }
+        // Receive data
+        if(PShell->ReceiveBinaryToBuf(FileBuf, Len, TIMEOUT_LONG_ms) == retvOk) {
+            if(Params & 0x10) Spi2.Transmit(Params, FileBuf, Len);
+            else Spi1.Transmit(Params, FileBuf, Len);
+            PShell->Ok();
+        }
+        else PShell->Timeout();
+    }
+
+    else if(PCmd->NameIs("rSpiFile")) {
+        uint32_t Len;
+        if(PCmd->GetNext<uint32_t>(&Len) == retvOk and Len <= FILEBUF_SZ) {
+            if(PShell->TransmitBinaryFromBuf(FileBuf, Len, TIMEOUT_LONG_ms) != retvOk) PShell->Timeout();
+        }
+        else PShell->BadParam();
+    }
 #endif
 
     else if(PCmd->NameIs("GetState")) {
@@ -520,7 +523,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             case devtTriplexer: break;
             case devtIKS:       break;
         }
-        PShell->Print("\r\n");
+        PShell->EOL();
     }
 
 #if 1 // ==== Thermostating ====
@@ -528,12 +531,57 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
 #endif
 }
 
-void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd, uint32_t Addr) {
-//    Printf("%S: %S\r\n", __FUNCTION__, PCmd->Name);
-    if(RS485Int.SendCmd(SLAVE_TIMEOUT_MID_ms, PCmd->Name, Addr, PCmd->GetRemainder()) == retvOk) {
-        PShell->Print("%S %S\r\n", RS485Int.Reply.Name, RS485Int.Reply.GetRemainder());
+uint8_t Ping(uint8_t Addr) {
+    if(RS485Int.SendCmd(TIMEOUT_MID_ms, "Ping", Addr) == retvOk) {
+        if(RS485Int.Reply.NameIs("Ok")) return retvOk;
     }
-    else PShell->Print("NoAnswer\r\n");
+    return retvNoAnswer;
+}
+
+void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd, uint32_t Addr) {
+    // Do not waste time if there is no device on the bus
+    if(Ping(Addr) != retvOk) {
+        PShell->NoAnswer();
+        return;
+    }
+
+    // ==== Special cases ====
+    if(PCmd->NameIs("wSPIFile")) {
+        uint8_t Params;
+        if(PCmd->GetNext<uint8_t>(&Params) != retvOk) { PShell->BadParam(); return; }
+        uint32_t Len;
+        if(PCmd->GetNext<uint32_t>(&Len) != retvOk or Len > FILEBUF_SZ) { PShell->BadParam(); return; }
+        // Receive data from host
+        if(PShell->ReceiveBinaryToBuf(FileBuf, Len, TIMEOUT_LONG_ms) == retvOk) {
+//            PShell->Print("File rcvd\r\n");
+            // Send data away
+            if(RS485Int.SendCmdAndTransmitBuf(TIMEOUT_LONG_ms, FileBuf, Len, PCmd->Name, Addr, "%u %u", Params, Len) == retvOk) {
+                if(RS485Int.Reply.NameIs("Ok")) PShell->Ok();
+                else PShell->Failure();
+            }
+            else PShell->Timeout();
+        }
+        else PShell->Timeout();
+    }
+
+    else if(PCmd->NameIs("rSpiFile")) {
+        uint32_t Len;
+        if(PCmd->GetNext<uint32_t>(&Len) != retvOk or Len > FILEBUF_SZ) { PShell->BadParam(); return; }
+        // Get data from there
+        if(RS485Int.SendCmdAndReceiveBuf(TIMEOUT_LONG_ms, FileBuf, Len, PCmd->Name, Addr, "%u", Len) == retvOk) {
+            // Send data to host
+            if(PShell->TransmitBinaryFromBuf(FileBuf, Len, TIMEOUT_LONG_ms) != retvOk) PShell->Timeout();
+        }
+        else PShell->Timeout();
+    }
+
+    // ==== Non-special command ====
+    else {
+        if(RS485Int.SendCmd(TIMEOUT_MID_ms, PCmd->Name, Addr, PCmd->GetRemainder()) == retvOk) {
+            PShell->Print("%S %S\r\n", RS485Int.Reply.Name, RS485Int.Reply.GetRemainder());
+        }
+        else PShell->NoAnswer();
+    }
 }
 
 #endif

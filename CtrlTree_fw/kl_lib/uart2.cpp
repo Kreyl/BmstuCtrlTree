@@ -133,7 +133,6 @@ void BaseUart_t::IRQDmaTxHandler() {
     IFullSlotsCount -= ITransSize;
     PRead += ITransSize;
     if(PRead >= (TXBuf + UART_TXBUF_SZ)) PRead = TXBuf; // Circulate pointer
-
     if(IFullSlotsCount == 0) {  // Nothing left to send
         IDmaIsIdle = true;
     }
@@ -368,6 +367,13 @@ void BaseUart_t::Init() {
     Params->Uart->CR1 |= USART_CR1_UE;    // Enable USART
 }
 
+// UART will wait this char to trigger reply interrupt
+void BaseUart_t::SetReplyEndChar(char c) {
+    Params->Uart->CR1 &= ~USART_CR1_UE; // Disable UART
+    Params->Uart->CR2 |= ((uint32_t)c) << 24; // What to recognize
+    Params->Uart->CR1 |= USART_CR1_UE; // Enable UART
+}
+
 void BaseUart_t::Shutdown() {
     Params->Uart->CR1 &= ~USART_CR1_UE; // UART Disable
     if     (Params->Uart == USART1) { rccDisableUSART1(); }
@@ -445,7 +451,7 @@ void BaseUart_t::OnClkChange() {
 
 #endif // Base UART
 
-#if 1 // ========================== CMD UART ===================================
+#if 1 // ====================== Text and CMD UART ==============================
 void CmdUart_t::OnUartIrqI(uint32_t flags) {
     if(flags & USART_ISR_CMF) {
         EvtQMain.SendNowOrExitI(EvtMsg_t(evtIdUartCmdRcvd, (void*)this));
@@ -454,11 +460,9 @@ void CmdUart_t::OnUartIrqI(uint32_t flags) {
 
 uint8_t CmdUart_t::ReceiveBinaryToBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms) {
     uint8_t Rslt = retvOk;
-    // Wait for previousTX to complete
-    dmaWaitCompletion(PDmaTx);
-    while(!(Params->Uart->ISR & USART_ISR_TXE));
-    while(!(Params->Uart->ISR & USART_ISR_TC));
-    Params->Uart->CR1 &= ~USART_CR1_UE; // Disable UART
+    // Wait for previous TX to complete
+    while(!IDmaIsIdle);
+    while(!(Params->Uart->ISR & USART_ISR_TXE)); // Wait
     Params->Uart->CR1 &= ~USART_CR1_CMIE; // Disable IRQ on char match
     // Setup DMA to given buffer
     dmaStreamDisable(PDmaRx);
@@ -467,26 +471,22 @@ uint8_t CmdUart_t::ReceiveBinaryToBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeo
     dmaStreamSetMode(PDmaRx, Params->DmaModeRx & (~STM32_DMA_CR_CIRC));
     dmaStreamEnable(PDmaRx);
     // Start transmission
-    Params->Uart->CR1 |= USART_CR1_UE; // Enable UART
     systime_t Start = chVTGetSystemTimeX();
     Params->Uart->TDR = '>';
-    while(PDmaRx->channel->CNDTR > 0U) {
+    while(dmaStreamGetTransactionSize(PDmaRx) > 0U) {
         if(chVTTimeElapsedSinceX(Start) > TIME_MS2I(Timeout_ms)) {
             Rslt = retvTimeout;
             break;
         }
     }
     // Return to self buffer
-    Params->Uart->CR1 &= ~USART_CR1_UE; // Disable UART
     dmaStreamDisable(PDmaRx);
     dmaStreamSetMemory0(PDmaRx, IRxBuf);
     dmaStreamSetTransactionSize(PDmaRx, UART_RXBUF_SZ);
     dmaStreamSetMode(PDmaRx, Params->DmaModeRx);
     Params->Uart->CR1 |= USART_CR1_CMIE; // Enable IRQ on match
+    RIndx = 0; // Reset RX buf pointer
     dmaStreamEnable(PDmaRx);
-    // Reset RX buf pointer
-    RIndx = 0;
-    Params->Uart->CR1 |= USART_CR1_UE; // Enable UART
     return Rslt;
 }
 
@@ -499,10 +499,10 @@ uint8_t CmdUart_t::TransmitBinaryFromBuf(uint8_t *ptr, uint32_t Len, uint32_t Ti
         if(chVTTimeElapsedSinceX(Start) > TIME_MS2I(Timeout_ms)) return retvTimeout;
     }
     // Wait for previousTX to complete
-    dmaWaitCompletion(PDmaTx);
+    while(!IDmaIsIdle);
     while(!(Params->Uart->ISR & USART_ISR_TXE));
-    while(!(Params->Uart->ISR & USART_ISR_TC));
     // Setup DMA to given buffer
+    dmaStreamDisable(PDmaTx);
     dmaStreamSetMemory0(PDmaTx, ptr);
     dmaStreamSetTransactionSize(PDmaTx, Len);
     dmaStreamSetMode(PDmaTx, Params->DmaModeTx & (~STM32_DMA_CR_TCIE));
@@ -519,13 +519,6 @@ void HostUart485_t::OnUartIrqI(uint32_t flags) {
     }
 }
 
-void HostUart485_t::Print(const char *format, ...) {
-    va_list args;
-    va_start(args, format);
-    IVsPrintf(format, args);
-    va_end(args);
-}
-
 uint8_t HostUart485_t::TryParseRxBuff() {
     uint8_t b;
     while(GetByte(&b) == retvOk) {
@@ -535,17 +528,62 @@ uint8_t HostUart485_t::TryParseRxBuff() {
 }
 
 uint8_t HostUart485_t::SendCmd(uint32_t Timeout_ms, const char* ACmd, uint32_t Addr, const char *format, ...) {
+    Print("%S %u", ACmd, Addr);
+    if(format and *format != 0) {
+        IPutByte(' '); // Add space after addr if something follows
+        va_list args;
+        va_start(args, format);
+        IVsPrintf(format, args);
+        va_end(args);
+    }
     chSysLock();
-    Print("%S %u ", ACmd, Addr);
-    va_list args;
-    va_start(args, format);
-    IVsPrintf(format, args);
-    va_end(args);
     PrintEOL();
+    // Receive reply
     msg_t Rslt = chThdSuspendTimeoutS(&ThdRef, TIME_MS2I(Timeout_ms)); // Wait IRQ
     chSysUnlock();  // Will be here when IRQ will fire, or timeout occur
     if(Rslt == MSG_OK) return TryParseRxBuff();
     else return retvTimeout;
+}
+
+uint8_t HostUart485_t::SendCmdAndTransmitBuf(uint32_t Timeout_ms, uint8_t *PBuf, uint32_t Len, const char* ACmd, uint32_t Addr, const char *format, ...) {
+    Print("%S %u", ACmd, Addr);
+    if(format and *format != 0) {
+        IPutByte(' '); // Add space after addr if something follows
+        va_list args;
+        va_start(args, format);
+        IVsPrintf(format, args);
+        va_end(args);
+    }
+    PrintEOL();
+    if(TransmitBinaryFromBuf(PBuf, Len, Timeout_ms) == retvOk) {
+        // Receive reply
+        chSysLock();
+        msg_t Rslt = MSG_OK;
+        if(TryParseRxBuff() == retvOk) { // Maybe reply is already there
+            chSysUnlock();
+            return retvOk;
+        }
+        else {
+            Rslt = chThdSuspendTimeoutS(&ThdRef, TIME_MS2I(Timeout_ms)); // Wait IRQ
+        }
+        chSysUnlock();
+        if(Rslt == MSG_OK) return TryParseRxBuff();
+        else return retvTimeout;
+    }
+    else return retvFail;
+}
+
+uint8_t HostUart485_t::SendCmdAndReceiveBuf(uint32_t Timeout_ms, uint8_t *PBuf, uint32_t Len, const char* ACmd, uint32_t Addr, const char *format, ...) {
+    Print("%S %u", ACmd, Addr);
+    if(format and *format != 0) {
+        IPutByte(' '); // Add space after addr if something follows
+        va_list args;
+        va_start(args, format);
+        IVsPrintf(format, args);
+        va_end(args);
+    }
+    PrintEOL();
+    return ReceiveBinaryToBuf(PBuf, Len, Timeout_ms);
 }
 #endif
 
