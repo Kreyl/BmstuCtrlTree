@@ -11,6 +11,8 @@
 #include "Device.h"
 #include <string>
 
+#include "crc_ccitt.h"
+
 #if 1 // ======================== Variables & prototypes =======================
 // Forever
 bool OsIsInitialized = false;
@@ -408,7 +410,8 @@ uint8_t ProcessMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
     else if(PCmd->NameIs("GetAllStates")) {
         uint32_t LongestNameLen = DevList.GetLongestNameLen();
         PShell->Print("Addr Type %*S State\r\n", LongestNameLen, "Name");
-        PShell->Print("%4u %4u %*S GPIO: 0x%X\n", ADDR_MASTER, SelfInfo.Type, LongestNameLen, SelfInfo.Name, GpioReg.Get());
+        PShell->Print("%4u %4u %*S %S GPIO=0x%X\n", ADDR_MASTER, SelfInfo.Type,
+                LongestNameLen, SelfInfo.Name, XSTRINGIFY(BUILD_TIME), GpioReg.Get());
         for(int32_t i=0; i<DevList.Cnt(); i++) {
             PShell->Print("%4u %4u %*S ", DevList[i].Addr, DevList[i].Type, LongestNameLen, DevList[i].Name);
             if(RS485Int.SendCmd(TIMEOUT_SHORT_ms, "GetTypeName", DevList[i].Addr) == retvOk) {
@@ -512,7 +515,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
 #endif
 
     else if(PCmd->NameIs("GetState")) {
-        PShell->Print("GetState GPIO: 0x%X", GpioReg.Get());
+        PShell->Print("GetState %S GPIO=0x%X", XSTRINGIFY(BUILD_TIME), GpioReg.Get());
         switch(SelfInfo.Type) {
             case devtNone:
             case devtHFBlock:
