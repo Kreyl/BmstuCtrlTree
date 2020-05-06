@@ -1444,6 +1444,8 @@ uint8_t ProgramBuf(void *PData, uint32_t ByteSz, uint32_t Addr);
 
 void WriteOptionBytes(uint32_t Value);
 
+void ToggleBootBankAndReset();
+
 bool FirmwareIsLocked();
 void LockFirmware();
 void UnlockFirmware();

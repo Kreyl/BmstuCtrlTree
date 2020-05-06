@@ -132,6 +132,7 @@ DevSpi_t Spi2{SPI2, GPIOB, 13,14,15,12, AF5};
 #endif
 
 int main(void) {
+//    Flash::LockFlash(); // XXX
 #if 1 // ==== Setup clock frequency ====
     Clk.EnablePrefetch();
     Clk.SwitchToMSI();
@@ -273,23 +274,7 @@ void OnCmd(Shell_t *PShell) {
     else if(PCmd->NameIs("bfbsw")) {
         Printf("%X\r", FLASH->OPTR);
         chThdSleepMilliseconds(99);
-        uint32_t Optr = FLASH->OPTR;
-        Optr = (Optr ^ FLASH_OPTR_BFB2); // switch BFB bit
-        chSysLock();
-        Flash::LockFlash(); // Otherwise HardFault occurs after flashing and without reset
-        while(FLASH->SR & FLASH_SR_BSY);
-        Flash::UnlockFlash();
-        Flash::UnlockOptionBytes();
-
-        FLASH->OPTR = Optr;
-        FLASH->CR |= FLASH_CR_OPTSTRT;
-        while(FLASH->SR & FLASH_SR_BSY);
-
-        FLASH->CR |= FLASH_CR_OBL_LAUNCH; // Option byte loading requested
-        Flash::LockOptionBytes();
-        Flash::LockFlash();
-        chSysUnlock();
-        Printf("*");
+        Flash::ToggleBootBankAndReset();
     }
 
     else if(PCmd->NameIs("SetAddr")) {
@@ -551,8 +536,8 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             uint8_t rslt = UpdateFw(FileBuf, Len, CrcIn);
             if(rslt == retvOk) {
                 PShell->Ok();
-                chThdSleepMilliseconds(450); // Let it end transmisison
-                REBOOT();
+                chThdSleepMilliseconds(72); // Let it end transmisison
+                Flash::ToggleBootBankAndReset();
             }
             else if(rslt == retvCRCError) PShell->CRCError();
             else PShell->Failure();

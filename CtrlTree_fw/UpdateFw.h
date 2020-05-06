@@ -9,4 +9,4 @@
 
 #include <inttypes.h>
 
-uint8_t UpdateFw(uint8_t *ptr, uint32_t Len, uint16_t CrcIn);
+uint8_t UpdateFw(uint8_t *ptr, int32_t Len, uint16_t CrcIn);

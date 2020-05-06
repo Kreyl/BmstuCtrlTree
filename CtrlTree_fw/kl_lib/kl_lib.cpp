@@ -821,6 +821,23 @@ void WriteOptionBytes(uint32_t OptReg) {
     }
 }
 
+void ToggleBootBankAndReset() {
+    uint32_t Optr = FLASH->OPTR;
+    // switch BFB bit and enable dualbank just in case
+    Optr = (Optr ^ FLASH_OPTR_BFB2) | FLASH_OPTR_DUALBANK;
+    Flash::LockFlash(); // Just in case if not locked
+    while(FLASH->SR & FLASH_SR_BSY);
+    Flash::UnlockFlash();
+    Flash::UnlockOptionBytes();
+    FLASH->OPTR = Optr;
+    FLASH->CR |= FLASH_CR_OPTSTRT;
+    while(FLASH->SR & FLASH_SR_BSY);
+    // Option byte loading requested. Will reset MCU.
+    FLASH->CR |= FLASH_CR_OBL_LAUNCH;
+    Flash::LockOptionBytes(); // Must never be here, but who knows.
+    Flash::LockFlash();
+}
+
 // ==== Firmare lock ====
 bool FirmwareIsLocked() {
 #ifdef STM32L4XX
