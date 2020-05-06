@@ -1,7 +1,7 @@
 /*
  * Sequences.h
  *
- *  Created on: 09 ÿíâ. 2015 ã.
+ *  Created on: 09 ï¿½ï¿½ï¿½. 2015 ï¿½.
  *      Author: Kreyl
  */
 
@@ -14,6 +14,18 @@ const BaseChunk_t lsqCmd[] = {
         {csWait, 99},
         {csSetup, 1},
         {csEnd}
+};
+
+const BaseChunk_t lsqWriting[] = {
+        {csSetup, 0},
+        {csWait, 45},
+        {csSetup, 1},
+        {csWait, 45},
+        {csSetup, 0},
+        {csWait, 45},
+        {csSetup, 1},
+        {csWait, 540},
+        {csGoto, 0}
 };
 
 #if 0 // ============================ LED blink ================================

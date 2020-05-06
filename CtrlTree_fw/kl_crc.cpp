@@ -1,16 +1,14 @@
 /*
- * crc_ccitt.h
+ * crc_ccitt.c
  *
- *  Created on: May 5, 2020
+ *  Created on: May 6, 2020
  *      Author: layst
  */
 
-#pragma once
-
-#include <inttypes.h>
+#include "kl_crc.h"
 #include "shell.h"
 
-#define CRC_INITVALUE   0x0000U
+namespace Crc {
 
 static const uint16_t CRCTable[256] = {
         0x0000,0x1021,0x2042,0x3063,0x4084,0x50A5,0x60C6,0x70E7,0x8108,0x9129,0xA14A,0xB16B,0xC18C,0xD1AD,0xE1CE,0xF1EF,
@@ -39,7 +37,32 @@ uint16_t CalculateCRC16(uint8_t *Buf, uint32_t Len) {
     return crc;
 }
 
-void CRCPrintTable() {
+const stm32_dma_stream_t *PDma;
+
+void InitHW() {
+    rccEnableCRC(FALSE);
+    CRC->CR = (0b01 << 3); // poly sz = 16
+    CRC->INIT = CRC_INITVALUE;
+    CRC->POL = 4129;
+    PDma = dmaStreamAlloc(STM32_DMA_STREAM_ID(1, 1), IRQ_PRIO_LOW, nullptr, nullptr);
+}
+
+#define CRC_DMA_MODE (STM32_DMA_CR_CHSEL(1) | DMA_PRIORITY_HIGH | \
+        STM32_DMA_CR_MSIZE_BYTE | STM32_DMA_CR_PSIZE_BYTE | STM32_DMA_CR_PINC |\
+        STM32_DMA_CR_DIR_M2M | STM32_DMA_CR_EN)
+
+
+uint16_t CalculateCRC16HW(uint8_t *Buf, uint32_t Len) {
+    CRC->CR |= CRC_CR_RESET;
+    dmaStreamSetPeripheral(PDma, Buf);
+    dmaStreamSetMemory0(PDma, &CRC->DR);
+    dmaStreamSetTransactionSize(PDma, Len);
+    dmaStreamSetMode(PDma, CRC_DMA_MODE);
+    dmaWaitCompletion(PDma);
+    return CRC->DR;
+}
+
+void CCITT16_PrintTable() {
     uint16_t poly = 4129;
     uint16_t temp, a;
     uint32_t Cnt = 0;
@@ -64,3 +87,4 @@ void CRCPrintTable() {
     }
 }
 
+} // namespace

@@ -1,3 +1,4 @@
+#include <kl_crc.h>
 #include "ch.h"
 #include "hal.h"
 #include "MsgQ.h"
@@ -10,8 +11,7 @@
 #include "kl_i2c.h"
 #include "Device.h"
 #include <string>
-
-#include "crc_ccitt.h"
+#include "UpdateFw.h"
 
 #if 1 // ======================== Variables & prototypes =======================
 // Forever
@@ -27,14 +27,10 @@ static const UartParams_t RS485ExtParams(115200, RS485EXT_PARAMS);
 static const UartParams_t RS485IntParams(115200, RS485INT_PARAMS);
 
 // Control from outside
-__attribute__((section ("DATA_RAM")))
 CmdUart_t Uart{CmdUartParams};
-__attribute__((section ("DATA_RAM")))
 CmdUart485_t RS485Ext{RS485ExtParams, RS485_EXT_TXEN};
-__attribute__((section ("DATA_RAM")))
 CmdUart_t RS232{RS232Params};
 // Internal host
-__attribute__((section ("DATA_RAM")))
 HostUart485_t RS485Int{RS485IntParams, RS485_INT_TXEN};
 #define TIMEOUT_SHORT_ms  54UL
 #define TIMEOUT_MID_ms    360UL
@@ -49,7 +45,6 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd);
 void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd, uint32_t Addr);
 
 static TmrKL_t TmrOneSecond {TIME_MS2I(999), evtIdEverySecond, tktPeriodic}; // Measure battery periodically
-__attribute__((section ("DATA_RAM")))
 uint8_t FileBuf[FILEBUF_SZ];
 #endif
 
@@ -139,6 +134,7 @@ DevSpi_t Spi2{SPI2, GPIOB, 13,14,15,12, AF5};
 int main(void) {
 #if 1 // ==== Setup clock frequency ====
     Clk.EnablePrefetch();
+    Clk.SwitchToMSI();
     Clk.SetVoltageRange(mvrHiPerf);
     Clk.SetupFlashLatency(48, mvrHiPerf);
     // Try quartz
@@ -173,6 +169,8 @@ int main(void) {
     else Printf("No Quartz\r\n");
     Clk.PrintFreqs();
 
+//    Printf("Aga!\r");
+
     Led.Init();
     Led.StartOrRestart(lsqCmd);
 
@@ -202,6 +200,8 @@ int main(void) {
     UsbCDC.Init();
     SimpleSensors::Init();
 //    TmrOneSecond.StartOrRestart();
+
+    Crc::InitHW();
 
     // Main cycle
     ITask();
@@ -268,6 +268,13 @@ void OnCmd(Shell_t *PShell) {
 #if 1 // ==== Direct commands ====
     if(PCmd->NameIs("Version")) PShell->Print("%S %S\r\n", APP_NAME, XSTRINGIFY(BUILD_TIME));
     else if(PCmd->NameIs("mem")) PrintMemoryInfo();
+
+    else if(PCmd->NameIs("jmp")) {
+
+    }
+    else if(PCmd->NameIs("msp")) {
+        Printf("%X\r", __get_MSP());
+    }
 
     else if(PCmd->NameIs("SetAddr")) {
         uint8_t Addr;
@@ -513,6 +520,33 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         else PShell->BadParam();
     }
 #endif
+
+    else if(PCmd->NameIs("UpdateFW")) {
+        uint32_t Len, CrcIn;
+        if(PCmd->GetNext<uint32_t>(&Len) != retvOk or Len > FILEBUF_SZ) { PShell->BadParam(); return; }
+        if(PCmd->GetNext<uint32_t>(&CrcIn) != retvOk) { PShell->BadParam(); return; }
+        // Receive data
+        if(PShell->ReceiveBinaryToBuf(FileBuf, Len, TIMEOUT_LONG_ms) == retvOk) {
+            uint8_t rslt = UpdateFw(FileBuf, Len, CrcIn);
+            if(rslt == retvOk) {
+                PShell->Ok();
+                chThdSleepMilliseconds(450); // Let it end transmisison
+                // TODO: reboot
+                chSysLock();
+                __disable_irq();
+                void (*app)(void);
+                volatile uint32_t *p = (volatile uint32_t*)ApplicationAddr; // get a pointer to app
+                SCB->VTOR = ApplicationAddr; // offset the vector table
+                __set_MSP(*p++);             // set main stack pointer to app Reset_Handler
+                app = (void(*)(void))(*p);
+                app();
+                chSysUnlock();
+            }
+            else if(rslt == retvCRCError) PShell->CRCError();
+            else PShell->Failure();
+        }
+        else PShell->Timeout();
+    }
 
     else if(PCmd->NameIs("GetState")) {
         PShell->Print("GetState %S GPIO=0x%X", XSTRINGIFY(BUILD_TIME), GpioReg.Get());
