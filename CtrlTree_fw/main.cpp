@@ -610,6 +610,30 @@ void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd, uint32_t Addr) {
         else PShell->Timeout();
     }
 
+    if(PCmd->NameIs("UpdateFW")) {
+        uint32_t Len, CrcIn;
+        if(PCmd->GetNext<uint32_t>(&Len) != retvOk or Len > FILEBUF_SZ) { PShell->BadParam(); return; }
+        if(PCmd->GetNext<uint32_t>(&CrcIn) != retvOk) { PShell->BadParam(); return; }
+        // Receive data
+        Led.StartOrRestart(lsqWriting);
+        if(PShell->ReceiveBinaryToBuf(FileBuf, Len, TIMEOUT_LONG_ms) == retvOk) {
+            PShell->Print("FileRcvd\r\n");
+            // Check CRC
+            uint16_t crc = Crc::CalculateCRC16HW(FileBuf, Len);
+            if(crc == CrcIn) {
+                // Send data away
+                if(RS485Int.SendCmdAndTransmitBuf(TIMEOUT_LONG_ms, FileBuf, Len, PCmd->Name, Addr, "%u 0x%X", Len, CrcIn) == retvOk) {
+                    if(RS485Int.Reply.NameIs("Ok")) PShell->Ok();
+                    else PShell->Failure();
+                }
+                else PShell->Timeout();
+            }
+            else PShell->CRCError();
+        }
+        else PShell->Timeout();
+        Led.StartOrRestart(lsqCmd);
+    }
+
     // ==== Non-special command ====
     else {
         if(RS485Int.SendCmd(TIMEOUT_MID_ms, PCmd->Name, Addr, PCmd->GetRemainder()) == retvOk) {

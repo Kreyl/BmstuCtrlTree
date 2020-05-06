@@ -13,7 +13,7 @@
 
 #define CMD_BUF_SZ		        1024
 #define DELIMITERS              " ,"
-#define PREV_CHAR_TIMEOUT_ms    180UL
+#define PREV_CHAR_TIMEOUT_ms    99UL
 
 enum ProcessDataResult_t {pdrProceed, pdrNewCmd};
 

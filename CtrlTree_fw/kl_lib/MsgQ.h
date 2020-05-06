@@ -1,7 +1,7 @@
 /*
  * EvtMsg.h
  *
- *  Created on: 21 апр. 2017 г.
+ *  Created on: 21 пїЅпїЅпїЅ. 2017 пїЅ.
  *      Author: Kreyl
  */
 
@@ -49,7 +49,7 @@ EvtMsgQ_t<RMsg_t, RMSG_Q_LEN> MsgQ;
 #define EMSG_DATA16_CNT     3   // ID + 3x2bytes = 7
 
 union EvtMsg_t {
-    uint32_t DWord[2];
+    uint32_t DWord[2] = {0, 0};
     struct {
         union {
             void* Ptr;
@@ -72,7 +72,7 @@ union EvtMsg_t {
         return *this;
     }
     EvtMsg_t() : Ptr(nullptr), ID(0) {}
-    EvtMsg_t(uint8_t AID) : ID(AID) {}
+    EvtMsg_t(uint8_t AID) : Ptr(nullptr), ID(AID) {}
     EvtMsg_t(uint8_t AID, void *APtr) : Ptr(APtr), ID(AID) {}
     EvtMsg_t(uint8_t AID, int32_t AValue) : Value(AValue), ID(AID) {}
     EvtMsg_t(uint8_t AID, uint8_t AValueID, int32_t AValue) : Value(AValue), ValueID(AValueID), ID(AID) {}
