@@ -666,7 +666,7 @@ uint8_t ErasePage(uint32_t PageAddress) {
 
 #if defined STM32L4XX
 uint8_t ProgramBuf32(uint32_t Address, uint32_t *PData, int32_t ASzBytes) {
-    Printf("PrgBuf %X  %u\r", Address, ASzBytes); chThdSleepMilliseconds(45);
+//    Printf("PrgBuf %X  %u\r", Address, ASzBytes); chThdSleepMilliseconds(45);
     ASzBytes = 8 * ((ASzBytes + 7) / 8);
     uint8_t status = WaitForLastOperation(FLASH_ProgramTimeout);
     if(status == retvOk) {
@@ -787,10 +787,8 @@ void LockOptionBytes() {
 #endif
 }
 
-void WriteOptionByteRDP(uint8_t Value) {
-    UnlockFlash();
+void WriteOptionBytes(uint32_t OptReg) {
     ClearPendingFlags();
-    UnlockOptionBytes();
     if(WaitForLastOperation(FLASH_ProgramTimeout) == retvOk) {
 #ifdef STM32L1XX
         uint32_t OptBytes = *(volatile uint32_t*)0x1FF80000;
@@ -800,9 +798,6 @@ void WriteOptionByteRDP(uint8_t Value) {
         *(volatile uint32_t*)0x1FF80000 = OptBytes;
         WaitForLastOperation(FLASH_ProgramTimeout);
 #elif defined STM32L4XX
-        uint32_t OptReg = FLASH->OPTR;
-        OptReg &= ~FLASH_OPTR_RDP_Msk;  // Clear RDP
-        OptReg |= Value;
         FLASH->OPTR = OptReg;
         FLASH->CR |= FLASH_CR_OPTSTRT;
         WaitForLastOperation(FLASH_ProgramTimeout);
@@ -824,8 +819,6 @@ void WriteOptionByteRDP(uint8_t Value) {
         }
 #endif
     }
-    LockOptionBytes();
-    LockFlash();
 }
 
 // ==== Firmare lock ====

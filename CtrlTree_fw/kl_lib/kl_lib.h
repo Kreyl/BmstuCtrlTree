@@ -1428,6 +1428,9 @@ namespace Flash {
 
 void UnlockFlash();
 void LockFlash();
+void UnlockOptionBytes();
+void LockOptionBytes();
+
 
 void ClearPendingFlags();
 uint8_t ErasePage(uint32_t PageAddress);
@@ -1438,6 +1441,8 @@ uint8_t ProgramBuf32(uint32_t Address, uint32_t *PData, int32_t ASzBytes);
 uint8_t ProgramWord(uint32_t Address, uint32_t Data);
 uint8_t ProgramBuf(void *PData, uint32_t ByteSz, uint32_t Addr);
 #endif
+
+void WriteOptionBytes(uint32_t Value);
 
 bool FirmwareIsLocked();
 void LockFirmware();

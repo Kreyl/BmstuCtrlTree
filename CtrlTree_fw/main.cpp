@@ -167,9 +167,8 @@ int main(void) {
     Printf("\r%S %S\r", APP_NAME, XSTRINGIFY(BUILD_TIME));
     if(Clk.GetPllSrc() == pllsrcHse) Printf("Quartz ok\r\n");
     else Printf("No Quartz\r\n");
+    Printf("%S\r\n", (FLASH->OPTR & FLASH_OPTR_BFB2)? "BankB" : "BankA");
     Clk.PrintFreqs();
-
-//    Printf("Aga!\r");
 
     Led.Init();
     Led.StartOrRestart(lsqCmd);
@@ -189,8 +188,6 @@ int main(void) {
 
     Spi1.Init();
     Spi2.Init();
-
-    FileBuf[0] = 0xAA;
 
     // Uarts
     RS485Ext.Init();
@@ -269,11 +266,30 @@ void OnCmd(Shell_t *PShell) {
     if(PCmd->NameIs("Version")) PShell->Print("%S %S\r\n", APP_NAME, XSTRINGIFY(BUILD_TIME));
     else if(PCmd->NameIs("mem")) PrintMemoryInfo();
 
-    else if(PCmd->NameIs("jmp")) {
-
+    else if(PCmd->NameIs("optr")) {
+        Printf("%X\r", FLASH->OPTR);
     }
-    else if(PCmd->NameIs("msp")) {
-        Printf("%X\r", __get_MSP());
+
+    else if(PCmd->NameIs("bfbsw")) {
+        Printf("%X\r", FLASH->OPTR);
+        chThdSleepMilliseconds(99);
+        uint32_t Optr = FLASH->OPTR;
+        Optr = (Optr ^ FLASH_OPTR_BFB2); // switch BFB bit
+        chSysLock();
+        Flash::LockFlash(); // Otherwise HardFault occurs after flashing and without reset
+        while(FLASH->SR & FLASH_SR_BSY);
+        Flash::UnlockFlash();
+        Flash::UnlockOptionBytes();
+
+        FLASH->OPTR = Optr;
+        FLASH->CR |= FLASH_CR_OPTSTRT;
+        while(FLASH->SR & FLASH_SR_BSY);
+
+        FLASH->CR |= FLASH_CR_OBL_LAUNCH; // Option byte loading requested
+        Flash::LockOptionBytes();
+        Flash::LockFlash();
+        chSysUnlock();
+        Printf("*");
     }
 
     else if(PCmd->NameIs("SetAddr")) {
@@ -503,6 +519,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         if(PCmd->GetNext<uint8_t>(&Params) != retvOk) { PShell->BadParam(); return; }
         uint32_t Len;
         if(PCmd->GetNext<uint32_t>(&Len) != retvOk or Len > FILEBUF_SZ) { PShell->BadParam(); return; }
+        Led.StartOrRestart(lsqWriting);
         // Receive data
         if(PShell->ReceiveBinaryToBuf(FileBuf, Len, TIMEOUT_LONG_ms) == retvOk) {
             if(Params & 0x10) Spi2.Transmit(Params, FileBuf, Len);
@@ -510,12 +527,15 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             PShell->Ok();
         }
         else PShell->Timeout();
+        Led.StartOrRestart(lsqCmd);
     }
 
     else if(PCmd->NameIs("rSpiFile")) {
         uint32_t Len;
         if(PCmd->GetNext<uint32_t>(&Len) == retvOk and Len <= FILEBUF_SZ) {
+            Led.StartOrRestart(lsqWriting);
             if(PShell->TransmitBinaryFromBuf(FileBuf, Len, TIMEOUT_LONG_ms) != retvOk) PShell->Timeout();
+            Led.StartOrRestart(lsqCmd);
         }
         else PShell->BadParam();
     }
@@ -526,26 +546,19 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         if(PCmd->GetNext<uint32_t>(&Len) != retvOk or Len > FILEBUF_SZ) { PShell->BadParam(); return; }
         if(PCmd->GetNext<uint32_t>(&CrcIn) != retvOk) { PShell->BadParam(); return; }
         // Receive data
+        Led.StartOrRestart(lsqWriting);
         if(PShell->ReceiveBinaryToBuf(FileBuf, Len, TIMEOUT_LONG_ms) == retvOk) {
             uint8_t rslt = UpdateFw(FileBuf, Len, CrcIn);
             if(rslt == retvOk) {
                 PShell->Ok();
                 chThdSleepMilliseconds(450); // Let it end transmisison
-                // TODO: reboot
-                chSysLock();
-                __disable_irq();
-                void (*app)(void);
-                volatile uint32_t *p = (volatile uint32_t*)ApplicationAddr; // get a pointer to app
-                SCB->VTOR = ApplicationAddr; // offset the vector table
-                __set_MSP(*p++);             // set main stack pointer to app Reset_Handler
-                app = (void(*)(void))(*p);
-                app();
-                chSysUnlock();
+                REBOOT();
             }
             else if(rslt == retvCRCError) PShell->CRCError();
             else PShell->Failure();
         }
         else PShell->Timeout();
+        Led.StartOrRestart(lsqCmd);
     }
 
     else if(PCmd->NameIs("GetState")) {
