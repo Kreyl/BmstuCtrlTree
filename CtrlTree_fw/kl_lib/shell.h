@@ -10,8 +10,8 @@
 #include <cstring>
 #include <stdarg.h>
 #include "kl_lib.h"
+#include "board.h"
 
-#define CMD_BUF_SZ		        1024
 #define DELIMITERS              " ,"
 #define PREV_CHAR_TIMEOUT_ms    99UL
 
@@ -23,36 +23,8 @@ private:
     uint32_t Cnt;
     bool Completed;
     systime_t LastCharTimestamp = 0;
-    // Inner strtok
-    char* last = nullptr;
-    char* IStrTok(register char* s, register const char* delim) {
-        if(s == nullptr and (s = last) == nullptr) return nullptr;
-        register char* spanp;
-        // Skip leading delimiters
-        cont:
-        register char c = *s++, sc;
-        for(spanp = (char*)delim; (sc = *spanp++) != 0;) {
-            if(c == sc) goto cont;
-        }
+    char* Remainer = nullptr;
 
-        if(c == 0) {    // no non-delimiter characters left, but string ended
-            last = nullptr;
-            return nullptr;
-        }
-        char* tok = s - 1;
-        while(true) {
-            c = *s++;
-            spanp = (char*)delim;
-            do {
-                if((sc = *spanp++) == c) {
-                    if(c == 0) s = nullptr;
-                    else *(s-1) = 0;
-                    last = s;
-                    return tok;
-                }
-            } while (sc != 0);
-        }
-    }
 public:
     char *Name;
     ProcessDataResult_t PutChar(char c) {
@@ -67,7 +39,7 @@ public:
         else if((c == '\r') or (c == '\n')) {   // end of line, check if cmd completed
             if(Cnt != 0) {  // if cmd is not empty
                 IString[Cnt] = 0; // End of string
-                Name = IStrTok(IString, DELIMITERS);
+                Name = kl_strtok(IString, DELIMITERS, &Remainer);
                 Completed = true;
                 return pdrNewCmd;
             }
@@ -76,9 +48,9 @@ public:
         return pdrProceed;
     }
 
-    char* GetNextString() { return IStrTok(nullptr, DELIMITERS); }
+    char* GetNextString() { return kl_strtok(nullptr, DELIMITERS, &Remainer); }
 
-    char* GetRemainder() { return last; }
+    char* GetRemainder() { return Remainer; }
 
     template <typename T>
     uint8_t GetNext(T *POutput) {
@@ -94,6 +66,122 @@ public:
         }
         return retvFail;
     }
+
+    /*
+     * Codes:
+     * ints: %u32 %u16 %u8 %d32 %d16 %d8
+     * string: %S %s
+     * float: %f
+     * '*' means skip next: %*
+     * Returns number of successful conversions
+     */
+    int Get(const char* fmt, ...) {
+        int N = 0;
+        va_list args;
+        va_start(args, fmt);
+        while(true) {
+            char c = *fmt++;
+            if(c == 0) goto End;
+            if(c != '%') continue;
+            // % found, what next?
+            c = *fmt++;
+            // Check if skip next token
+            if(c == '*') {
+                if(GetNextString() == nullptr) goto End;
+                else continue;
+            }
+
+            // Get next token
+            char *tok = kl_strtok(nullptr, DELIMITERS, &Remainer);
+            if(tok == nullptr) goto End;
+
+            // Command decoding
+            switch(c) {
+                case 'u': {
+                    // Convert
+                    char *ret;
+                    uint32_t v = strtoul(tok, &ret, 0); // Conversion failed
+                    if(*ret != 0) goto End;
+                    // Get sz
+                    c = *fmt++;
+                    if(c == '8') {
+                        uint8_t *p = va_arg(args, uint8_t*);
+                        if(p == nullptr) goto End;
+                        *p = (uint8_t)v;
+                    }
+                    else if(c == '1') {
+                        uint16_t *p = va_arg(args, uint16_t*);
+                        if(p == nullptr) goto End;
+                        *p = (uint16_t)v;
+                    }
+                    else if(c == '3') {
+                        uint32_t *p = va_arg(args, uint32_t*);
+                        if(p == nullptr) goto End;
+                        *p = v;
+                    }
+                    else goto End;
+                    N++;
+                }
+                break;
+
+                case 'd': {
+                    // Convert
+                    char *ret;
+                    int32_t v = strtol(tok, &ret, 0); // Conversion failed
+                    if(*ret != 0) goto End;
+                    // Get sz
+                    c = *fmt++;
+                    if(c == '8') {
+                        int8_t *p = va_arg(args, int8_t*);
+                        if(p == nullptr) goto End;
+                        *p = (int8_t)v;
+                    }
+                    else if(c == '1') {
+                        int16_t *p = va_arg(args, int16_t*);
+                        if(p == nullptr) goto End;
+                        *p = (int16_t)v;
+                    }
+                    else if(c == '3') {
+                        int32_t *p = va_arg(args, int32_t*);
+                        if(p == nullptr) goto End;
+                        *p = v;
+                    }
+                    else goto End;
+                    N++;
+                }
+                break;
+
+                case 's':
+                case 'S': {
+                    char **p = va_arg(args, char**);
+                    if(p == nullptr) goto End;
+                    *p = tok;
+                    N++;
+                }
+                break;
+#if PRINTF_FLOAT_EN
+                case 'f': {
+                    float *p = va_arg(args, float*);
+                    if(p == nullptr) goto End;
+                    char *ret;
+                    *p = strtof(tok, &ret);
+                    if(*ret != 0) goto End; // Conversion failed
+                    N++;
+                }
+                break;
+#endif
+                default: break; // including '*'
+            } // switch c
+        } // while true
+        End:
+        return N;
+    }
+
+#if PRINTF_FLOAT_EN
+    uint8_t GetNextFloat() {
+        return 0;
+    }
+#endif
 
     template <typename T>
     uint8_t GetArray(T *Ptr, int32_t Len) {
@@ -137,13 +225,15 @@ public:
 	virtual void Print(const char *format, ...) = 0;
 //	void Reply(const char* CmdCode, int32_t Data) { Print("%S,%d\r\n", CmdCode, Data); }
 //	void Ack(int32_t Result) { Print("Ack %d\r\n", Result); }
-	void Ok()  { Print("Ok\r\n"); }
-	void BadParam() { Print("BadParam\r\n"); }
-	void CRCError() { Print("CRCError\r\n"); }
-	void Failure() { Print("Failure\r\n"); }
-	void Timeout() { Print("Timeout\r\n"); }
-	void NoAnswer() { Print("NoAnswer\r\n"); }
-	void EOL() { Print("\r\n"); }
+    void Ok()  { Print("Ok\r\n"); }
+    void BadParam() { Print("BadParam\r\n"); }
+    void CRCError() { Print("CRCError\r\n"); }
+    void CmdError() { Print("CmdError\r\n"); }
+    void CmdUnknown() { Print("CmdUnknown\r\n"); }
+    void Failure() { Print("Failure\r\n"); }
+    void Timeout() { Print("Timeout\r\n"); }
+    void NoAnswer() { Print("NoAnswer\r\n"); }
+    void EOL() { Print("\r\n"); }
 	virtual uint8_t ReceiveBinaryToBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms) = 0;
 	virtual uint8_t TransmitBinaryFromBuf(uint8_t *ptr, uint32_t Len, uint32_t Timeout_ms) = 0;
 };

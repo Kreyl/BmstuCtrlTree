@@ -147,6 +147,7 @@
 #define PRINTF_FLOAT_EN TRUE
 #define UART_TXBUF_SZ   4096
 #define UART_RXBUF_SZ   1024
+#define CMD_BUF_SZ      1024
 
 #define CMD_UART        USART1
 

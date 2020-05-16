@@ -129,10 +129,26 @@ public:
 DevSpi_t Spi1{SPI1, GPIOA, 5,6,7,4, AF5};
 DevSpi_t Spi2{SPI2, GPIOB, 13,14,15,12, AF5};
 
+class tControl_t {
+public:
+    int32_t Actual_t = 25; // Todo: switch to float
+    bool TStatingIsOn = false;
+} tControl;
+
+class Power_t {
+public:
+    uint32_t Current = 0;
+} Power;
+
+class Synth_t {
+public:
+    uint32_t GetFreq() { return 999; }
+    uint32_t GetOffset() { return 42; }
+} Synth;
+
 #endif
 
 int main(void) {
-//    Flash::LockFlash(); // XXX
 #if 1 // ==== Setup clock frequency ====
     Clk.EnablePrefetch();
     Clk.SwitchToMSI();
@@ -171,6 +187,8 @@ int main(void) {
     Printf("%S\r\n", (FLASH->OPTR & FLASH_OPTR_BFB2)? "BankB" : "BankA");
     Clk.PrintFreqs();
 
+//    Printf("FloatTest: %.2f; %S\r", 0.1234, GetTypeName<int>());
+
     Led.Init();
     Led.StartOrRestart(lsqCmd);
 
@@ -199,7 +217,7 @@ int main(void) {
     SimpleSensors::Init();
 //    TmrOneSecond.StartOrRestart();
 
-    Crc::InitHW();
+    Crc::InitHWDMA();
 
     // Main cycle
     ITask();
@@ -267,15 +285,17 @@ void OnCmd(Shell_t *PShell) {
     if(PCmd->NameIs("Version")) PShell->Print("%S %S\r\n", APP_NAME, XSTRINGIFY(BUILD_TIME));
     else if(PCmd->NameIs("mem")) PrintMemoryInfo();
 
-    else if(PCmd->NameIs("optr")) {
-        Printf("%X\r", FLASH->OPTR);
-    }
-
     else if(PCmd->NameIs("bfbsw")) {
         Printf("%X\r", FLASH->OPTR);
         chThdSleepMilliseconds(99);
         Flash::ToggleBootBankAndReset();
     }
+
+    else if(PCmd->NameIs("SetTemp")) {
+//        float t;
+//        if(PCmd->GetNext(POutput)
+    }
+
 
     else if(PCmd->NameIs("SetAddr")) {
         uint8_t Addr;
@@ -345,7 +365,7 @@ uint8_t ProcessMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
         if(DevList.Cnt() == 0) PShell->Print("NoDevices\r\n");
         else {
             uint32_t LongestNameLen = DevList.GetLongestNameLen();
-            PShell->Print("Addr Type %*S State\r\n", LongestNameLen, "Name");
+            PShell->Print("Addr Type %*S State\n", LongestNameLen, "Name");
             for(int32_t i=0; i<DevList.Cnt(); i++) {
                 PShell->Print("%4u %4u %*S ", DevList[i].Addr, DevList[i].Type, LongestNameLen, DevList[i].Name);
                 if(RS485Int.SendCmd(TIMEOUT_SHORT_ms, "GetTypeName", DevList[i].Addr) == retvOk) {
@@ -417,7 +437,7 @@ uint8_t ProcessMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
 
     else if(PCmd->NameIs("GetAllStates")) {
         uint32_t LongestNameLen = DevList.GetLongestNameLen();
-        PShell->Print("Addr Type %*S State\r\n", LongestNameLen, "Name");
+        PShell->Print("Addr Type %*S State\n", LongestNameLen, "Name");
         PShell->Print("%4u %4u %*S %S GPIO=0x%X\n", ADDR_MASTER, SelfInfo.Type,
                 LongestNameLen, SelfInfo.Name, XSTRINGIFY(BUILD_TIME), GpioReg.Get());
         for(int32_t i=0; i<DevList.Cnt(); i++) {
@@ -552,11 +572,21 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             case devtNone:
             case devtHFBlock:
                 break;
-            case devtLNA:       break;
-            case devtKUKonv:    break;
-            case devtMRL:       break;
-            case devtTriplexer: break;
-            case devtIKS:       break;
+            case devtLNA: // Todo: switch to float, use precision
+                PShell->Print(" t=%d TStating=%u Current=%u", tControl.Actual_t, tControl.TStatingIsOn, Power.Current);
+                break;
+            case devtKUKonv:
+                PShell->Print(" SynthFreq=%d SynthOffset=%d", Synth.GetFreq(), Synth.GetOffset());
+                break;
+            case devtMRL:
+                PShell->Print(" SynthFreq=%d SynthOffset=%d", Synth.GetFreq(), Synth.GetOffset());
+                break;
+            case devtTriplexer:
+                PShell->Print(" t=%d TStating=%u Current=%u", tControl.Actual_t, tControl.TStatingIsOn, Power.Current);
+                break;
+            case devtIKS:
+                PShell->Print(" SynthFreq=%d SynthOffset=%d", Synth.GetFreq(), Synth.GetOffset());
+                break;
         }
         PShell->EOL();
     }
@@ -619,7 +649,7 @@ void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd, uint32_t Addr) {
         if(PShell->ReceiveBinaryToBuf(FileBuf, Len, TIMEOUT_LONG_ms) == retvOk) {
             PShell->Print("FileRcvd\r\n");
             // Check CRC
-            uint16_t crc = Crc::CalculateCRC16HW(FileBuf, Len);
+            uint16_t crc = Crc::CalculateCRC16HWDMA(FileBuf, Len);
             if(crc == CrcIn) {
                 // Send data away
                 if(RS485Int.SendCmdAndTransmitBuf(TIMEOUT_LONG_ms, FileBuf, Len, PCmd->Name, Addr, "%u 0x%X", Len, CrcIn) == retvOk) {

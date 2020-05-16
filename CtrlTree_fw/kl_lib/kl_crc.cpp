@@ -37,9 +37,28 @@ uint16_t CalculateCRC16(uint8_t *Buf, uint32_t Len) {
     return crc;
 }
 
-const stm32_dma_stream_t *PDma;
+uint16_t CalculateCRC16HW(uint8_t *Buf, uint32_t Len) {
+    // Init HW
+#if defined STM32L4XX
+    rccEnableCRC(FALSE);
+#else
+    RCC->AHBENR |= RCC_AHBENR_CRCEN;
+#endif
+    CRC->CR = (0b01 << 3); // poly sz = 16
+    CRC->INIT = CRC_INITVALUE;
+    CRC->POL = CRC_POLY;
+    // Calculate
+    while(Len--) *(volatile uint8_t*)&CRC->DR = *Buf++;
+    return CRC->DR;
+}
 
-void InitHW() {
+#if defined STM32L4XX
+const stm32_dma_stream_t *PDma;
+#define CRC_DMA_MODE (STM32_DMA_CR_CHSEL(1) | DMA_PRIORITY_HIGH | \
+        STM32_DMA_CR_MSIZE_BYTE | STM32_DMA_CR_PSIZE_BYTE | STM32_DMA_CR_PINC |\
+        STM32_DMA_CR_DIR_M2M | STM32_DMA_CR_EN)
+
+void InitHWDMA() {
     rccEnableCRC(FALSE);
     CRC->CR = (0b01 << 3); // poly sz = 16
     CRC->INIT = CRC_INITVALUE;
@@ -47,12 +66,7 @@ void InitHW() {
     PDma = dmaStreamAlloc(STM32_DMA_STREAM_ID(1, 1), IRQ_PRIO_LOW, nullptr, nullptr);
 }
 
-#define CRC_DMA_MODE (STM32_DMA_CR_CHSEL(1) | DMA_PRIORITY_HIGH | \
-        STM32_DMA_CR_MSIZE_BYTE | STM32_DMA_CR_PSIZE_BYTE | STM32_DMA_CR_PINC |\
-        STM32_DMA_CR_DIR_M2M | STM32_DMA_CR_EN)
-
-
-uint16_t CalculateCRC16HW(uint8_t *Buf, uint32_t Len) {
+uint16_t CalculateCRC16HWDMA(uint8_t *Buf, uint32_t Len) {
     CRC->CR |= CRC_CR_RESET;
     dmaStreamSetPeripheral(PDma, Buf);
     dmaStreamSetMemory0(PDma, &CRC->DR);
@@ -61,6 +75,7 @@ uint16_t CalculateCRC16HW(uint8_t *Buf, uint32_t Len) {
     dmaWaitCompletion(PDma);
     return CRC->DR;
 }
+#endif
 
 void CCITT16_PrintTable() {
     uint16_t poly = 4129;

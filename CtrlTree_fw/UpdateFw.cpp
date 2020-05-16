@@ -18,7 +18,7 @@
 
 uint8_t UpdateFw(uint8_t *ptr, int32_t Len, uint16_t CrcIn) {
     // Check crc
-    uint16_t crc = Crc::CalculateCRC16HW(ptr, Len);
+    uint16_t crc = Crc::CalculateCRC16HWDMA(ptr, Len);
     if(crc != CrcIn) return retvCRCError;
 
     // Unlock flash

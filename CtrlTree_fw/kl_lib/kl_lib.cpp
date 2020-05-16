@@ -107,6 +107,35 @@ int kl_strcasecmp(const char *s1, const char *s2) {
   }
   return result;
 }
+
+char* kl_strtok(register char* s, register const char* delim, register char**PLast) {
+    if(s == nullptr and (s = *PLast) == nullptr) return nullptr;
+    register char* spanp;
+    // Skip leading delimiters
+    cont:
+    register char c = *s++, sc;
+    for(spanp = (char*)delim; (sc = *spanp++) != 0;) {
+        if(c == sc) goto cont;
+    }
+
+    if(c == 0) {    // no non-delimiter characters left, but string ended
+        *PLast = nullptr;
+        return nullptr;
+    }
+    char* tok = s - 1;
+    while(true) {
+        c = *s++;
+        spanp = (char*)delim;
+        do {
+            if((sc = *spanp++) == c) {
+                if(c == 0) s = nullptr;
+                else *(s-1) = 0;
+                *PLast = s;
+                return tok;
+            }
+        } while (sc != 0);
+    }
+}
 #endif
 
 #ifdef DMA_MEM2MEM
@@ -472,7 +501,8 @@ void TmrKLCallback(void *p) {
 }
 
 void TmrKL_t::IIrqHandler() {    // Call it inside callback
-    EvtQMain.SendNowOrExitI(EvtMsg_t(EvtId));
+    EvtMsg_t Msg(EvtId);
+    EvtQMain.SendNowOrExitI(Msg);
     if(TmrType == tktPeriodic) StartI();
 }
 #endif
@@ -812,7 +842,7 @@ void WriteOptionBytes(uint32_t OptReg) {
         CLEAR_BIT(FLASH->CR, FLASH_CR_OPTER);
         if(Rslt == retvOk) {
             SET_BIT(FLASH->CR, FLASH_CR_OPTPG); // Enable the Option Bytes Programming operation
-            OB->RDP = Value;
+            OB->RDP = OptReg;
             WaitForLastOperation(FLASH_ProgramTimeout);
             CLEAR_BIT(FLASH->CR, FLASH_CR_OPTPG); // Disable the Option Bytes Programming operation
         }
@@ -820,6 +850,7 @@ void WriteOptionBytes(uint32_t OptReg) {
     }
 }
 
+#if defined FLASH_OPTR_BFB2
 void ToggleBootBankAndReset() {
     uint32_t Optr = FLASH->OPTR;
     // switch BFB bit and enable dualbank just in case
@@ -836,6 +867,7 @@ void ToggleBootBankAndReset() {
     Flash::LockOptionBytes(); // Must never be here, but who knows.
     Flash::LockFlash();
 }
+#endif
 
 // ==== Firmare lock ====
 bool FirmwareIsLocked() {
@@ -874,6 +906,8 @@ void LockFirmware() {
         LockFlash();    // Will lock option bytes too
         WaitForLastOperation(FLASH_ProgramTimeout);
     }
+#elif defined STM32F0XX
+
 #else
     WriteOptionByteRDP(0x1D); // Any value except 0xAA or 0xCC
     // Set the OBL_Launch bit to reset system and launch the option byte loading

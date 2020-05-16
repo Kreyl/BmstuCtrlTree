@@ -232,6 +232,10 @@ uint8_t TryStrToFloat(char* S, float *POutput);
 #if 1 // ============================ kl_string ================================
 int kl_strcasecmp(const char *s1, const char *s2);
 
+char* kl_strtok(register char* s, register const char* delim, register char**PLast);
+
+int kl_sscanf(const char* s, const char* format, ...);
+
 #endif
 
 #ifdef DMA_MEM2MEM
@@ -1399,6 +1403,25 @@ public:
         while(!(PSpi->SR & SPI_SR_RXNE));
         return PSpi->DR;
     }
+    void Transmit(uint8_t Params, uint8_t *ptr, uint32_t Len) {
+        PSpi->CR1 &= ~SPI_CR1_SPE; // Disable SPI
+        PSpi->CR1 = SPI_CR1_SSM | SPI_CR1_SSI | SPI_CR1_MSTR;
+        if(Params & 0x80) PSpi->CR1 |= SPI_CR1_LSBFIRST; // 0 = MSB, 1 = LSB
+        if(Params & 0x40) PSpi->CR1 |= SPI_CR1_CPOL;     // 0 = IdleLow, 1 = IdleHigh
+        if(Params & 0x20) PSpi->CR1 |= SPI_CR1_CPHA;     // 0 = FirstEdge, 1 = SecondEdge
+        PSpi->CR1 |= (Params & 0x07) << 3; // Setup divider
+        PSpi->CR2 = ((uint16_t)0b0111 << 8) | SPI_CR2_FRXTH;   // 8 bit, RXNE generated when 8 bit is received
+        (void)PSpi->SR; // Read Status reg to clear some flags
+        // Do it
+        PSpi->CR1 |=  SPI_CR1_SPE; // Enable SPI
+        while(Len) {
+            *((volatile uint8_t*)&PSpi->DR) = *ptr;
+            while(!(PSpi->SR & SPI_SR_RXNE));  // Wait for SPI transmission to complete
+            *ptr = *((volatile uint8_t*)&PSpi->DR);
+            ptr++;
+            Len--;
+        }
+    }
 #if defined STM32L4XX
 //    void WriteRead2Bytes(uint8_t b1, uint8_t b2) const {
 //        *((volatile uint8_t*)&PSpi->DR) = b1;
@@ -1738,6 +1761,7 @@ enum ClkSrc_t {csHSI=0b00, csHSE=0b01, csPLL=0b10};
 #else
 enum PllSrc_t {plsHSIdiv2=0b00, plsHSIdivPREDIV=0b01, plsHSEdivPREDIV=0b10, plsHSI48divPREDIV=0b11};
 enum ClkSrc_t {csHSI=0b00, csHSE=0b01, csPLL=0b10, csHSI48=0b11};
+enum uartClk_t {uartclkPCLK = 0, uartclkSYSCLK = 1, uartclkLSE = 2, uartclkHSI = 3 };
 #endif
 
 enum AHBDiv_t {
