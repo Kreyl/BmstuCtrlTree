@@ -121,10 +121,23 @@ void DeviceList_t::Save() {
 
 #if 1 // ========================= Settings ====================================
 uint8_t Settings_t::Load() {
-    return ee.Read(EE_SETTINGS_ADDR, (void*)this, sizeof(Settings_t));
+    uint8_t Rslt = ee.Read(EE_SETTINGS_ADDR, (void*)this, sizeof(Settings_t));
+    if(Rslt == retvOk) {
+        // Check values
+        if(TargetT < 0 or TargetT > 125 or TControlEnabled > 1) Reset();
+    }
+    return Rslt;
 }
 
 uint8_t Settings_t::Save() {
     return ee.Write(EE_SETTINGS_ADDR, (void*)this, sizeof(Settings_t));
+}
+
+void Settings_t::Reset() {
+    PowerOnGPIO = 0;
+    TargetT = 0;
+    TControlEnabled = 0;
+    SynthPowerOnFreq = 0;
+    SynthPowerOnOffset = 0;
 }
 #endif

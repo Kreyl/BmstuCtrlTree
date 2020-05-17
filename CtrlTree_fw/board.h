@@ -56,12 +56,10 @@
 // DBG LED
 #define LED_PIN         GPIOB, 3, omPushPull
 
-// SPI1
-#define SPI1_CS         GPIOA, 4
-#define SPI1_SCK        GPIOA, 5
-#define SPI1_MISO       GPIOA, 6
-#define SPI1_MOSI       GPIOA, 7
-
+// TControl
+#define HEATER_TOP      1000
+#define HEATER_MAX_V    702.0 // To allow 2A max
+#define HEATER_CTRL     GPIOB, 0, TIM3, 3, invNotInverted, omPushPull, (HEATER_TOP-1)
 
 // I2C
 #define I2C1_GPIO       GPIOB

@@ -178,8 +178,18 @@ public:
     }
 
 #if PRINTF_FLOAT_EN
-    uint8_t GetNextFloat() {
-        return 0;
+    uint8_t GetNextFloat(float *POutput) {
+        char* S = GetNextString();
+        if(S) {
+            char *p;
+            float f = strtof(S, &p);
+            if(*p == '\0') {
+                *POutput = f;
+                return retvOk;
+            }
+            else return retvNotANumber;
+        }
+        return retvFail;
     }
 #endif
 

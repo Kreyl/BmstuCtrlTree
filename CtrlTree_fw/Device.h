@@ -64,11 +64,13 @@ public:
 class Settings_t {
 public:
     uint32_t PowerOnGPIO = 0;
-    uint8_t Tstating = 0;
+    float TargetT = 0;
+    uint8_t TControlEnabled = 0;
     float SynthPowerOnFreq = 0;
-    float SynthPowerOnPffset = 0;
+    float SynthPowerOnOffset = 0;
     uint8_t Load();
     uint8_t Save();
+    void Reset();
 };
 
 extern Device_t SelfInfo;

@@ -1,4 +1,5 @@
-#include <kl_crc.h>
+#include "kl_crc.h"
+#include "TControl.h"
 #include "ch.h"
 #include "hal.h"
 #include "MsgQ.h"
@@ -129,12 +130,6 @@ public:
 DevSpi_t Spi1{SPI1, GPIOA, 5,6,7,4, AF5};
 DevSpi_t Spi2{SPI2, GPIOB, 13,14,15,12, AF5};
 
-class tControl_t {
-public:
-    int32_t Actual_t = 25; // Todo: switch to float
-    bool TStatingIsOn = false;
-} tControl;
-
 class Power_t {
 public:
     uint32_t Current = 0;
@@ -212,12 +207,17 @@ int main(void) {
     RS485Ext.Init();
     RS485Int.Init();
     RS232.Init();
-
     UsbCDC.Init();
-    SimpleSensors::Init();
-//    TmrOneSecond.StartOrRestart();
 
     Crc::InitHWDMA();
+    SimpleSensors::Init();
+
+    // T control
+    tControl::Init();
+    if(SelfInfo.Type == devtLNA or SelfInfo.Type == devtTriplexer) {
+        if(Settings.TControlEnabled) tControl::SetModeControl();
+        else tControl::SetModeMeasure();
+    }
 
     // Main cycle
     ITask();
@@ -293,9 +293,17 @@ void OnCmd(Shell_t *PShell) {
 
     else if(PCmd->NameIs("SetTemp")) {
 //        float t;
-//        if(PCmd->GetNext(POutput)
+//        if(PCmd->Get("%f") == 1)
     }
 
+    else if(PCmd->NameIs("htr"))  {
+        uint32_t v;
+        if(PCmd->GetNext<uint32_t>(&v) == retvOk) {
+            tControl::SetHeater(v);
+            PShell->Ok();
+        }
+        else PShell->BadParam();
+    }
 
     else if(PCmd->NameIs("SetAddr")) {
         uint8_t Addr;
@@ -307,6 +315,7 @@ void OnCmd(Shell_t *PShell) {
         uint8_t Type;
         if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return; }
         SelfInfo.Type = (DevType_t)Type;
+        Settings.Reset();
         TryToSaveSelfInfo(PShell);
     }
     else if(PCmd->NameIs("SetName")) {
@@ -475,6 +484,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         uint8_t Type;
         if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return; }
         SelfInfo.Type = (DevType_t)Type;
+        Settings.Reset();
         TryToSaveSelfInfo(PShell);
     }
     else if(PCmd->NameIs("ChangeName")) {
@@ -572,8 +582,11 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             case devtNone:
             case devtHFBlock:
                 break;
-            case devtLNA: // Todo: switch to float, use precision
-                PShell->Print(" t=%d TStating=%u Current=%u", tControl.Actual_t, tControl.TStatingIsOn, Power.Current);
+            case devtLNA:
+                if(tControl::FailString == nullptr) {
+                    PShell->Print(" t=%.1f TStating=%d Current=%u", tControl::Actual_t, Settings.TControlEnabled, Power.Current);
+                }
+                else PShell->Print(" %S Current=%u", tControl::FailString, Power.Current);
                 break;
             case devtKUKonv:
                 PShell->Print(" SynthFreq=%d SynthOffset=%d", Synth.GetFreq(), Synth.GetOffset());
@@ -582,7 +595,10 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
                 PShell->Print(" SynthFreq=%d SynthOffset=%d", Synth.GetFreq(), Synth.GetOffset());
                 break;
             case devtTriplexer:
-                PShell->Print(" t=%d TStating=%u Current=%u", tControl.Actual_t, tControl.TStatingIsOn, Power.Current);
+                if(tControl::FailString == nullptr) {
+                    PShell->Print(" t=%.1f TStating=%d Current=%u", tControl::Actual_t, Settings.TControlEnabled, Power.Current);
+                }
+                else PShell->Print(" %S Current=%u", tControl::FailString, Power.Current);
                 break;
             case devtIKS:
                 PShell->Print(" SynthFreq=%d SynthOffset=%d", Synth.GetFreq(), Synth.GetOffset());
@@ -592,7 +608,30 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
     }
 
 #if 1 // ==== Thermostating ====
+    else if(PCmd->NameIs("SetTTS")) {
+        float t;
+        if(PCmd->GetNextFloat(&t) != retvOk) { PShell->BadParam(); return; }
+        if(t < 0 or t > 125) { PShell->BadParam(); return; }
+        Settings.TargetT = t;
+        if(Settings.Save() == retvOk) PShell->Ok();
+        else PShell->Failure();
+    }
+    else if(PCmd->NameIs("GetTTS")) { PShell->Print("GetTTS %.1f\r\n", Settings.TargetT); }
 
+    else if(PCmd->NameIs("SetTstating")) {
+        if(SelfInfo.Type == devtLNA or SelfInfo.Type == devtTriplexer) {
+            uint8_t OnOff;
+            if(PCmd->Get("%u8", &OnOff) != 1) { PShell->BadParam(); return; }
+            if(OnOff > 0) OnOff = 1;
+            Settings.TControlEnabled = OnOff;
+            if(OnOff) tControl::SetModeControl();
+            else tControl::SetModeMeasure();
+            if(Settings.Save() == retvOk) PShell->Ok();
+            else PShell->Failure();
+        }
+        else PShell->CmdError();
+    }
+    else if(PCmd->NameIs("GetTstating")) { PShell->Print("GetTstating %u\r\n", Settings.TControlEnabled); }
 #endif
 }
 
