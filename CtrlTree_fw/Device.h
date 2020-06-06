@@ -21,6 +21,8 @@
 #define EE_SETTINGS_ADDR    (EE_SELF_ADDR + sizeof(Device_t))
 #define EE_DEVLIST_ADDR     128UL
 
+#define SETTINGS_MAX_SZ     (EE_DEVLIST_ADDR - EE_SETTINGS_ADDR)
+
 enum DevType_t : uint8_t {
     devtNone = 0,
     devtHFBlock = 1,
@@ -61,17 +63,34 @@ public:
     void Save();
 };
 
+struct RegHMC821_t {
+    uint32_t Addr : 8;
+    uint32_t Value : 24;
+} __attribute__((packed));
+
+struct RegAdf5356_t {
+    uint32_t Value : 28;
+    uint32_t Addr: 4;
+} __attribute__((packed));
+
+#define REG_CNT         22
+
 class Settings_t {
 public:
     uint32_t PowerOnGPIO = 0;
     float TargetT = 0;
     uint8_t TControlEnabled = 0;
-    float SynthPowerOnFreq = 0;
-    float SynthPowerOnOffset = 0;
+    // Regs
+    union {
+        RegHMC821_t RegsHMC[REG_CNT];
+        RegAdf5356_t RegsADF[REG_CNT];
+    };
+    uint8_t SavedRegsCnt = 0;
+    bool RegsAreSaved() { return SavedRegsCnt and (SavedRegsCnt <= REG_CNT); }
     uint8_t Load();
     uint8_t Save();
     void Reset();
-};
+} __attribute__((packed));
 
 extern Device_t SelfInfo;
 extern Settings_t Settings;

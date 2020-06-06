@@ -137,7 +137,6 @@ void Settings_t::Reset() {
     PowerOnGPIO = 0;
     TargetT = 0;
     TControlEnabled = 0;
-    SynthPowerOnFreq = 0;
-    SynthPowerOnOffset = 0;
+
 }
 #endif

@@ -42,12 +42,13 @@ public:
         // Output limitation
         if(Rslt > MAX_RSLT) Rslt = MAX_RSLT;
         else if(Rslt < -MAX_RSLT) Rslt = -MAX_RSLT;
-#if 0 // Verbose
+#if 1 // Verbose
 //        Printf("t=%.1f; Err=%.1f; Rslt=%.1f\r\n", NewValue, Err, Rslt);
-        Printf("%.1f; %.1f; %.1f", NewValue, Err, Rslt);
+//        Printf("%.1f; %.1f; %.1f", NewValue, Err, Rslt);
+        Printf("%.1f; %.1f;", NewValue, Err);
 //        Printf("%.1f, %.1f", Err, Rslt);
-        if(Kd != 0) Printf("; %.1f", dif);
-        if(Ki != 0) Printf("; %.1f", integ);
+//        if(Kd != 0) Printf("; %.1f", dif);
+//        if(Ki != 0) Printf("; %.1f", integ);
         Printf("\r\n");
 #endif
         return Rslt;

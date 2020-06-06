@@ -135,12 +135,74 @@ public:
     uint32_t Current = 0;
 } Power;
 
-class Synth_t {
+class Hmc821_t {
+private:
+    PinOutput_t CE{GPIOD, 7, omPushPull};  // B18: Chip Enable
+    PinOutput_t SEN{GPIOA, 4, omPushPull}; // Serial port enable, Active High (!)
+    Spi_t ISpi{SPI1};
 public:
-    uint32_t GetFreq() { return 999; }
-    uint32_t GetOffset() { return 42; }
-} Synth;
+    void Init() {
+        // Init GPIOs
+        CE.Init();
+        SEN.Init();
+        PinSetupOut(GPIOA, 5, omPushPull); // SCK must be low first
+        chThdSleepMilliseconds(45); // let it wake
+        CE.SetHi();
+        chThdSleepMilliseconds(4);
+        // Rise SEN before SCK: select HMC Serial Mode
+        SEN.SetHi();
+        chThdSleepMilliseconds(4);
+        PinSetHi(GPIOA, 5); // SCK HI
+        chThdSleepMilliseconds(4);
+        PinSetLo(GPIOA, 5); // SCK Lo
+        SEN.SetLo(); // SEN Active High
+        chThdSleepMilliseconds(4);
+        // Init SPI
+        PinSetupAlterFunc(GPIOA, 5, omPushPull, pudNone, AF5, psVeryHigh); // SCK
+        PinSetupAlterFunc(GPIOA, 6, omPushPull, pudNone, AF5, psVeryHigh); // MISO
+        PinSetupAlterFunc(GPIOA, 7, omPushPull, pudNone, AF5, psVeryHigh); // MOSI
+        rccEnableSPI1(FALSE);
+        ISpi.Setup(boMSB, cpolIdleLow, cphaFirstEdge, 8000000, bitn16);
+        ISpi.Enable();
+    }
+    void WriteReg(uint32_t Addr, uint32_t Value) {
+        uint32_t Word = (Addr << 25) | ((Value & 0xFFF) << 1); // 0=wr, 6xAddr, 24xValue, 1xDontCare
+        SEN.SetHi(); // SEN is active hi
+        ISpi.ReadWriteWord((Word >> 16) & 0xFFFF);
+        ISpi.ReadWriteWord(Word & 0xFFFF);
+        SEN.SetLo();
+//        Printf("HMC: %X = %X\r", Addr, Value);
+    }
+} Hmc821;
 
+class Adf5356_t {
+private:
+    PinOutput_t LE{GPIOA, 4, omPushPull}; // Latch Enable
+    PinOutput_t CE{GPIOD, 7, omPushPull}; // B18: Chip Enable
+    Spi_t ISpi{SPI1};
+public:
+    void Init() {
+        // Init GPIOs
+        LE.Init();
+        LE.SetHi();
+        CE.Init();
+        CE.SetHi();
+        chThdSleepMilliseconds(7);
+        // Init SPI
+        PinSetupAlterFunc(GPIOA, 5, omPushPull, pudNone, AF5, psVeryHigh); // SCK
+        PinSetupAlterFunc(GPIOA, 7, omPushPull, pudNone, AF5, psVeryHigh); // MOSI
+        rccEnableSPI1(FALSE);
+        ISpi.Setup(boMSB, cpolIdleLow, cphaFirstEdge, 8000000, bitn16);
+        ISpi.Enable();
+    }
+    void WriteReg(uint32_t Addr, uint32_t Value) {
+        uint32_t Word = (Value << 4) | (Addr & 0b1111UL); // 28xValue, 4xAddr
+        LE.SetLo();
+        ISpi.ReadWriteWord((Word >> 16) & 0xFFFF);
+        ISpi.ReadWriteWord(Word & 0xFFFF);
+        LE.SetHi();
+    }
+} Adf5356;
 #endif
 
 int main(void) {
@@ -182,7 +244,9 @@ int main(void) {
     Printf("%S\r\n", (FLASH->OPTR & FLASH_OPTR_BFB2)? "BankB" : "BankA");
     Clk.PrintFreqs();
 
-//    Printf("FloatTest: %.2f; %S\r", 0.1234, GetTypeName<int>());
+    if(sizeof(Settings_t) > SETTINGS_MAX_SZ) Printf("*** Too large Settings ***\r\n");
+
+//    Printf("sz of Settings_t: %u; max: %u\r", sizeof(Settings_t), SETTINGS_MAX_SZ);
 
     Led.Init();
     Led.StartOrRestart(lsqCmd);
@@ -196,12 +260,7 @@ int main(void) {
     SelfInfo.Load(EE_SELF_ADDR);
     DevList.Load();
     Settings.Load();
-
-    GpioReg.Init();
-    GpioReg.Set(Settings.PowerOnGPIO);
-
-    Spi1.Init();
-    Spi2.Init();
+//    Printf("SavedRegsCnt: %u, %u\r", Settings.SavedRegsCnt, Settings.RegsAreSaved());
 
     // Uarts
     RS485Ext.Init();
@@ -217,6 +276,32 @@ int main(void) {
     if(SelfInfo.Type == devtLNA or SelfInfo.Type == devtTriplexer) {
         if(Settings.TControlEnabled) tControl::SetModeControl();
         else tControl::SetModeMeasure();
+    }
+
+    Spi2.Init(); // always
+
+    if(SelfInfo.Type == devtMRL) {
+        Hmc821.Init();
+        // load regs if they are saved
+        if(Settings.RegsAreSaved()) {
+            for(uint32_t i=0; i<Settings.SavedRegsCnt; i++) {
+                Hmc821.WriteReg(Settings.RegsHMC[i].Addr, Settings.RegsHMC[i].Value);
+            }
+        }
+    }
+    else if(SelfInfo.Type == devtKUKonv) {
+        Adf5356.Init();
+        // load regs if they are saved
+        if(Settings.RegsAreSaved()) {
+            for(uint32_t i=0; i<Settings.SavedRegsCnt; i++) {
+                Adf5356.WriteReg(Settings.RegsADF[i].Addr, Settings.RegsADF[i].Value);
+            }
+        }
+    }
+    else {
+        Spi1.Init();
+        GpioReg.Init();
+        GpioReg.Set(Settings.PowerOnGPIO);
     }
 
     // Main cycle
@@ -517,6 +602,11 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
     else if(PCmd->NameIs("WRSPI")) {
         uint8_t Params;
         if(PCmd->GetNext<uint8_t>(&Params) != retvOk) { PShell->BadParam(); return; }
+        // SPI1 is not allowed for direct writing
+        if((SelfInfo.Type == devtMRL or SelfInfo.Type == devtKUKonv) and ((Params & 0x10) == 0)) {
+            PShell->BadParam();
+            return;
+        }
         uint8_t *p = FileBuf;
         while(PCmd->GetNext<uint8_t>(p) == retvOk) p++; // Get what to send
         uint32_t Len = p - FileBuf;
@@ -532,6 +622,11 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
     else if(PCmd->NameIs("wSPIFile")) {
         uint8_t Params;
         if(PCmd->GetNext<uint8_t>(&Params) != retvOk) { PShell->BadParam(); return; }
+        // SPI1 is not allowed for direct writing
+        if((SelfInfo.Type == devtMRL or SelfInfo.Type == devtKUKonv) and ((Params & 0x10) == 0)) {
+            PShell->BadParam();
+            return;
+        }
         uint32_t Len;
         if(PCmd->GetNext<uint32_t>(&Len) != retvOk or Len > FILEBUF_SZ) { PShell->BadParam(); return; }
         Led.StartOrRestart(lsqWriting);
@@ -589,10 +684,8 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
                 else PShell->Print(" %S Current=%u", tControl::FailString, Power.Current);
                 break;
             case devtKUKonv:
-                PShell->Print(" SynthFreq=%d SynthOffset=%d", Synth.GetFreq(), Synth.GetOffset());
                 break;
             case devtMRL:
-                PShell->Print(" SynthFreq=%d SynthOffset=%d", Synth.GetFreq(), Synth.GetOffset());
                 break;
             case devtTriplexer:
                 if(tControl::FailString == nullptr) {
@@ -601,7 +694,6 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
                 else PShell->Print(" %S Current=%u", tControl::FailString, Power.Current);
                 break;
             case devtIKS:
-                PShell->Print(" SynthFreq=%d SynthOffset=%d", Synth.GetFreq(), Synth.GetOffset());
                 break;
         }
         PShell->EOL();
@@ -632,6 +724,46 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         else PShell->CmdError();
     }
     else if(PCmd->NameIs("GetTstating")) { PShell->Print("GetTstating %u\r\n", Settings.TControlEnabled); }
+#endif
+
+#if 1 // ==== HMC821 ====
+    else if(SelfInfo.Type == devtMRL or SelfInfo.Type == devtKUKonv) {
+        if(PCmd->NameIs("SetRegs")) {
+            uint32_t Cnt = 0, Addr, Value;
+            while(true) {
+                if(PCmd->GetNext<uint32_t>(&Addr) != retvOk) break;
+                if(PCmd->GetNext<uint32_t>(&Value) != retvOk) { PShell->BadParam(); return; } // Addr exsits, value is not
+                if(SelfInfo.Type == devtMRL) Hmc821.WriteReg(Addr, Value);
+                else Adf5356.WriteReg(Addr, Value);
+                Cnt++;
+            }
+            if(Cnt) PShell->Ok();
+            else PShell->BadParam();
+        }
+        else if(PCmd->NameIs("SaveRegs")) {
+            uint32_t Cnt = 0, Addr, Value;
+            while(true) {
+                if(Cnt >= REG_CNT) { PShell->BadParam(); return; }
+                if(PCmd->GetNext<uint32_t>(&Addr) != retvOk) break;
+                if(PCmd->GetNext<uint32_t>(&Value) != retvOk) { PShell->BadParam(); return; } // Addr exsits, value is not
+                if(SelfInfo.Type == devtMRL) {
+                    Settings.RegsHMC[Cnt].Addr = Addr;
+                    Settings.RegsHMC[Cnt].Value = Value;
+                }
+                else {
+                    Settings.RegsADF[Cnt].Addr = Addr;
+                    Settings.RegsADF[Cnt].Value = Value;
+                }
+                Cnt++;
+            }
+            if(Cnt) {
+                Settings.SavedRegsCnt = Cnt;
+                if(Settings.Save() == retvOk) PShell->Ok();
+                else PShell->Failure();
+            }
+            else PShell->BadParam();
+        }
+    }
 #endif
 }
 
