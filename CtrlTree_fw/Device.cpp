@@ -125,6 +125,8 @@ uint8_t Settings_t::Load() {
     if(Rslt == retvOk) {
         // Check values
         if(TargetT < 0 or TargetT > 125 or TControlEnabled > 1) Reset();
+        // Check synth params
+        if(!(WhatSaved == SAVED_REGS_FLAG or WhatSaved == SAVED_PARAMS_FLAG)) WhatSaved = SAVED_NONE_FLAG;
     }
     return Rslt;
 }

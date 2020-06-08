@@ -13,6 +13,7 @@
 #include "Device.h"
 #include <string>
 #include "UpdateFw.h"
+#include "Adf5356.h"
 
 #if 1 // ======================== Variables & prototypes =======================
 // Forever
@@ -137,18 +138,14 @@ public:
 
 class Hmc821_t {
 private:
-    PinOutput_t CE{GPIOD, 7, omPushPull};  // B18: Chip Enable
     PinOutput_t SEN{GPIOA, 4, omPushPull}; // Serial port enable, Active High (!)
     Spi_t ISpi{SPI1};
 public:
     void Init() {
         // Init GPIOs
-        CE.Init();
         SEN.Init();
         PinSetupOut(GPIOA, 5, omPushPull); // SCK must be low first
         chThdSleepMilliseconds(45); // let it wake
-        CE.SetHi();
-        chThdSleepMilliseconds(4);
         // Rise SEN before SCK: select HMC Serial Mode
         SEN.SetHi();
         chThdSleepMilliseconds(4);
@@ -159,7 +156,7 @@ public:
         chThdSleepMilliseconds(4);
         // Init SPI
         PinSetupAlterFunc(GPIOA, 5, omPushPull, pudNone, AF5, psVeryHigh); // SCK
-        PinSetupAlterFunc(GPIOA, 6, omPushPull, pudNone, AF5, psVeryHigh); // MISO
+//        PinSetupAlterFunc(GPIOA, 6, omPushPull, pudNone, AF5, psVeryHigh); // MISO
         PinSetupAlterFunc(GPIOA, 7, omPushPull, pudNone, AF5, psVeryHigh); // MOSI
         rccEnableSPI1(FALSE);
         ISpi.Setup(boMSB, cpolIdleLow, cphaFirstEdge, 8000000, bitn16);
@@ -175,34 +172,7 @@ public:
     }
 } Hmc821;
 
-class Adf5356_t {
-private:
-    PinOutput_t LE{GPIOA, 4, omPushPull}; // Latch Enable
-    PinOutput_t CE{GPIOD, 7, omPushPull}; // B18: Chip Enable
-    Spi_t ISpi{SPI1};
-public:
-    void Init() {
-        // Init GPIOs
-        LE.Init();
-        LE.SetHi();
-        CE.Init();
-        CE.SetHi();
-        chThdSleepMilliseconds(7);
-        // Init SPI
-        PinSetupAlterFunc(GPIOA, 5, omPushPull, pudNone, AF5, psVeryHigh); // SCK
-        PinSetupAlterFunc(GPIOA, 7, omPushPull, pudNone, AF5, psVeryHigh); // MOSI
-        rccEnableSPI1(FALSE);
-        ISpi.Setup(boMSB, cpolIdleLow, cphaFirstEdge, 8000000, bitn16);
-        ISpi.Enable();
-    }
-    void WriteReg(uint32_t Addr, uint32_t Value) {
-        uint32_t Word = (Value << 4) | (Addr & 0b1111UL); // 28xValue, 4xAddr
-        LE.SetLo();
-        ISpi.ReadWriteWord((Word >> 16) & 0xFFFF);
-        ISpi.ReadWriteWord(Word & 0xFFFF);
-        LE.SetHi();
-    }
-} Adf5356;
+Adf5356_t Adf5356;
 #endif
 
 int main(void) {
@@ -278,31 +248,41 @@ int main(void) {
         else tControl::SetModeMeasure();
     }
 
-    Spi2.Init(); // always
+    // Always
+    GpioReg.Init();
+    GpioReg.Set(Settings.PowerOnGPIO);
+    Spi2.Init();
 
+    // Spi1 utilized by MRL and KuKonv, init it if type id another
     if(SelfInfo.Type == devtMRL) {
         Hmc821.Init();
-        // load regs if they are saved
-        if(Settings.RegsAreSaved()) {
+        // Load regs if they are saved
+        if(Settings.WhatSaved == SAVED_REGS_FLAG and Settings.SavedRegsCnt <= REG_CNT) {
             for(uint32_t i=0; i<Settings.SavedRegsCnt; i++) {
-                Hmc821.WriteReg(Settings.RegsHMC[i].Addr, Settings.RegsHMC[i].Value);
+                Hmc821.WriteReg(Settings.Hmc821.Regs[i].Addr, Settings.Hmc821.Regs[i].Value);
             }
         }
     }
     else if(SelfInfo.Type == devtKUKonv) {
         Adf5356.Init();
-        // load regs if they are saved
-        if(Settings.RegsAreSaved()) {
+        // Load regs if they are saved
+        if(Settings.WhatSaved == SAVED_REGS_FLAG and Settings.SavedRegsCnt <= REG_CNT) {
             for(uint32_t i=0; i<Settings.SavedRegsCnt; i++) {
-                Adf5356.WriteReg(Settings.RegsADF[i].Addr, Settings.RegsADF[i].Value);
+                Adf5356.WriteReg(Settings.Adf5356.Regs[i].Addr, Settings.Adf5356.Regs[i].Value);
             }
         }
+        // Or calc and set regs if params were saved
+        else if(Settings.WhatSaved == SAVED_PARAMS_FLAG) {
+            Adf5356.fref = Settings.Adf5356.fref;
+            Adf5356.step = Settings.Adf5356.step;
+            Adf5356.fd   = Settings.Adf5356.fd;
+            Adf5356.fvco = Settings.Adf5356.fvco;
+            Adf5356.CalcRegs();
+            Adf5356.SetRegs();
+            Adf5356.PrintRegs();
+        }
     }
-    else {
-        Spi1.Init();
-        GpioReg.Init();
-        GpioReg.Set(Settings.PowerOnGPIO);
-    }
+    else Spi1.Init();
 
     // Main cycle
     ITask();
@@ -726,7 +706,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
     else if(PCmd->NameIs("GetTstating")) { PShell->Print("GetTstating %u\r\n", Settings.TControlEnabled); }
 #endif
 
-#if 1 // ==== HMC821 ====
+#if 1 // ==== HMC821 & ADF5356 ====
     else if(SelfInfo.Type == devtMRL or SelfInfo.Type == devtKUKonv) {
         if(PCmd->NameIs("SetRegs")) {
             uint32_t Cnt = 0, Addr, Value;
@@ -741,27 +721,68 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             else PShell->BadParam();
         }
         else if(PCmd->NameIs("SaveRegs")) {
-            uint32_t Cnt = 0, Addr, Value;
+            uint32_t Cnt = 0, Addr[REG_CNT], Value[REG_CNT];
+            // Get regs
             while(true) {
                 if(Cnt >= REG_CNT) { PShell->BadParam(); return; }
-                if(PCmd->GetNext<uint32_t>(&Addr) != retvOk) break;
-                if(PCmd->GetNext<uint32_t>(&Value) != retvOk) { PShell->BadParam(); return; } // Addr exsits, value is not
-                if(SelfInfo.Type == devtMRL) {
-                    Settings.RegsHMC[Cnt].Addr = Addr;
-                    Settings.RegsHMC[Cnt].Value = Value;
-                }
-                else {
-                    Settings.RegsADF[Cnt].Addr = Addr;
-                    Settings.RegsADF[Cnt].Value = Value;
-                }
+                if(PCmd->GetNext<uint32_t>(&Addr[Cnt]) != retvOk) break;
+                if(PCmd->GetNext<uint32_t>(&Value[Cnt]) != retvOk) { PShell->BadParam(); return; } // Addr exsits, value is not
                 Cnt++;
             }
-            if(Cnt) {
-                Settings.SavedRegsCnt = Cnt;
+            if(!Cnt) { PShell->BadParam(); return; }
+            // Put regs to settings
+            if(SelfInfo.Type == devtMRL) { // Hmc821
+                for(uint32_t i=0; i<Cnt; i++) {
+                    Settings.Hmc821.Regs[i].Addr = Addr[i];
+                    Settings.Hmc821.Regs[i].Value = Value[i];
+                }
+            }
+            else {
+                for(uint32_t i=0; i<Cnt; i++) {
+                    Settings.Adf5356.Regs[i].Addr = Addr[i];
+                    Settings.Adf5356.Regs[i].Value = Value[i];
+                }
+            }
+            // Save settings
+            Settings.WhatSaved = SAVED_REGS_FLAG;
+            Settings.SavedRegsCnt = Cnt;
+            if(Settings.Save() == retvOk) PShell->Ok();
+            else PShell->Failure();
+        }
+        // ==== ADF5356 ====
+        else if(SelfInfo.Type == devtKUKonv) {
+            if(PCmd->NameIs("CalcRegs")) {
+                if(PCmd->GetNextDouble(&Adf5356.fref) != retvOk) { PShell->BadParam(); return; }
+                if(PCmd->GetNextDouble(&Adf5356.step) != retvOk) { PShell->BadParam(); return; }
+                if(PCmd->GetNextDouble(&Adf5356.fd  ) != retvOk) { PShell->BadParam(); return; }
+                if(PCmd->GetNextDouble(&Adf5356.fvco) != retvOk) { PShell->BadParam(); return; }
+                Adf5356.CalcRegs();
+                Adf5356.PrintRegs();
+                PShell->Ok();
+            }
+            else if(PCmd->NameIs("CalcRegsAndSet")) {
+                if(PCmd->GetNextDouble(&Adf5356.fref) != retvOk) { PShell->BadParam(); return; }
+                if(PCmd->GetNextDouble(&Adf5356.step) != retvOk) { PShell->BadParam(); return; }
+                if(PCmd->GetNextDouble(&Adf5356.fd  ) != retvOk) { PShell->BadParam(); return; }
+                if(PCmd->GetNextDouble(&Adf5356.fvco) != retvOk) { PShell->BadParam(); return; }
+                Adf5356.CalcRegs();
+                Adf5356.SetRegs();
+                PShell->Ok();
+            }
+            else if(PCmd->NameIs("SaveSynthParams")) {
+                double fref, step, fd, fvco;
+                if(PCmd->GetNextDouble(&fref) != retvOk) { PShell->BadParam(); return; }
+                if(PCmd->GetNextDouble(&step) != retvOk) { PShell->BadParam(); return; }
+                if(PCmd->GetNextDouble(&fd  ) != retvOk) { PShell->BadParam(); return; }
+                if(PCmd->GetNextDouble(&fvco) != retvOk) { PShell->BadParam(); return; }
+                Settings.Adf5356.fref = fref;
+                Settings.Adf5356.step = step;
+                Settings.Adf5356.fd   = fd;
+                Settings.Adf5356.fvco = fvco;
+                Settings.WhatSaved = SAVED_PARAMS_FLAG;
                 if(Settings.Save() == retvOk) PShell->Ok();
                 else PShell->Failure();
             }
-            else PShell->BadParam();
         }
     }
 #endif
@@ -843,5 +864,4 @@ void ProcessCmdForSlave(Shell_t *PShell, Cmd_t *PCmd, uint32_t Addr) {
         else PShell->NoAnswer();
     }
 }
-
 #endif

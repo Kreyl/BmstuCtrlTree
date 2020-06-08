@@ -73,20 +73,33 @@ struct RegAdf5356_t {
     uint32_t Addr: 4;
 } __attribute__((packed));
 
-#define REG_CNT         22
-
+#define REG_CNT             22
+#define SAVED_NONE_FLAG     0
+#define SAVED_REGS_FLAG     0x95
+#define SAVED_PARAMS_FLAG   0xCA
 class Settings_t {
 public:
     uint32_t PowerOnGPIO = 0;
     float TargetT = 0;
     uint8_t TControlEnabled = 0;
-    // Regs
-    union {
-        RegHMC821_t RegsHMC[REG_CNT];
-        RegAdf5356_t RegsADF[REG_CNT];
-    };
-    uint8_t SavedRegsCnt = 0;
-    bool RegsAreSaved() { return SavedRegsCnt and (SavedRegsCnt <= REG_CNT); }
+    struct {
+        union {
+            struct {
+                RegHMC821_t Regs[REG_CNT];
+            } Hmc821;
+
+            struct {
+                union {
+                    RegAdf5356_t Regs[REG_CNT];
+                    struct {
+                        double fref, step, fd, fvco;
+                    };
+                };
+            } Adf5356 __attribute__((packed));
+        } __attribute__((packed));
+        uint8_t SavedRegsCnt = 0;
+        uint8_t WhatSaved = 0;
+    }  __attribute__((packed));
     uint8_t Load();
     uint8_t Save();
     void Reset();
