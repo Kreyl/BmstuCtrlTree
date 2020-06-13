@@ -242,10 +242,10 @@ int main(void) {
     SimpleSensors::Init();
 
     // T control
-    tControl::Init();
+    tControl.Init();
     if(SelfInfo.Type == devtLNA or SelfInfo.Type == devtTriplexer) {
-        if(Settings.TControlEnabled) tControl::SetModeControl();
-        else tControl::SetModeMeasure();
+        if(Settings.TControlEnabled) tControl.StartControl();
+        else tControl.StartMeasure();
     }
 
     // Always
@@ -364,7 +364,7 @@ void OnCmd(Shell_t *PShell) {
     else if(PCmd->NameIs("htr"))  {
         uint32_t v;
         if(PCmd->GetNext<uint32_t>(&v) == retvOk) {
-            tControl::SetHeater(v);
+            tControl.SetHeater(v);
             PShell->Ok();
         }
         else PShell->BadParam();
@@ -659,20 +659,16 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             case devtHFBlock:
                 break;
             case devtLNA:
-                if(tControl::FailString == nullptr) {
-                    PShell->Print(" t=%.1f TStating=%d Current=%u", tControl::Actual_t, Settings.TControlEnabled, Power.Current);
+            case devtTriplexer:
+                PShell->Print(" t=%.1f TStating=%d", tControl.tAvg, Settings.TControlEnabled);
+                for(auto &Sns : tControl.Sensors) {
+                    if(Sns.IsOk) PShell->Print(" %S=%.1f", Sns.Name, Sns.t);
+                    else         PShell->Print(" %S=err", Sns.Name);
                 }
-                else PShell->Print(" %S Current=%u", tControl::FailString, Power.Current);
                 break;
             case devtKUKonv:
                 break;
             case devtMRL:
-                break;
-            case devtTriplexer:
-                if(tControl::FailString == nullptr) {
-                    PShell->Print(" t=%.1f TStating=%d Current=%u", tControl::Actual_t, Settings.TControlEnabled, Power.Current);
-                }
-                else PShell->Print(" %S Current=%u", tControl::FailString, Power.Current);
                 break;
             case devtIKS:
                 break;
@@ -697,8 +693,8 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             if(PCmd->Get("%u8", &OnOff) != 1) { PShell->BadParam(); return; }
             if(OnOff > 0) OnOff = 1;
             Settings.TControlEnabled = OnOff;
-            if(OnOff) tControl::SetModeControl();
-            else tControl::SetModeMeasure();
+            if(OnOff) tControl.StartControl();
+            else tControl.StartMeasure();
             if(Settings.Save() == retvOk) PShell->Ok();
             else PShell->Failure();
         }

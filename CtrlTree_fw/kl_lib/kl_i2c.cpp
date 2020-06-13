@@ -813,7 +813,7 @@ void i2c_t::IServeIRQ(uint32_t isr) {
     I2C_TypeDef *pi2c = PParams->pi2c;  // To make things shorter
 #if 1 // ==== NACK ====
     if((isr & I2C_ISR_NACKF) != 0) {
-        PrintfI("i2c 0x%X NACK\r", (pi2c->CR2 >> 1) & 0xFF);
+//        PrintfI("i2c 0x%X NACK\r", (pi2c->CR2 >> 1) & 0xFF);
         // Stop DMA
         dmaStreamDisable(PDmaTx);
         dmaStreamDisable(PDmaRx);
@@ -875,7 +875,7 @@ void i2c_t::IServeErrIRQ(uint32_t isr) {
     if(isr & I2C_ISR_TIMEOUT) Errors |= I2C_TIMEOUT;
     // If some error has been identified then wake the waiting thread
     if(Errors != I2C_NO_ERROR) {
-        PrintfI("i2c err: %X\r", Errors);
+//        PrintfI("i2c err: %X\r", Errors);
         IWakeup();
     }
 }
