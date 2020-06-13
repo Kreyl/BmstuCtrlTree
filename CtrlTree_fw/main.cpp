@@ -268,7 +268,7 @@ int main(void) {
         // Load regs if they are saved
         if(Settings.WhatSaved == SAVED_REGS_FLAG and Settings.SavedRegsCnt <= REG_CNT) {
             for(uint32_t i=0; i<Settings.SavedRegsCnt; i++) {
-                Adf5356.WriteReg(Settings.Adf5356.Regs[i].Addr, Settings.Adf5356.Regs[i].Value);
+                Adf5356.WriteReg(Settings.Adf5356.Regs[i]);
             }
         }
         // Or calc and set regs if params were saved
@@ -279,7 +279,7 @@ int main(void) {
             Adf5356.fvco = Settings.Adf5356.fvco;
             Adf5356.CalcRegs();
             Adf5356.SetRegs();
-            Adf5356.PrintRegs();
+//            Adf5356.PrintRegs();
         }
     }
     else Spi1.Init();
@@ -423,7 +423,7 @@ void TryToChangeRealDeviceParams(Cmd_t *PCmd, uint8_t Addr, uint8_t Type, char *
 
 uint8_t ProcessMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
     if(PCmd->NameIs("Scan")) {
-        PShell->Print("Addr Type Name\r\n");
+        PShell->Print("Addr Type Name\n");
         bool SomeoneFound = false;
         for(uint32_t i=ADDR_MIN; i<=ADDR_MAX; i++) {
             if(i == ADDR_MASTER) continue;
@@ -432,7 +432,8 @@ uint8_t ProcessMasterCmd(Shell_t *PShell, Cmd_t *PCmd) {
                SomeoneFound = true;
             }
         }
-        if(!SomeoneFound) PShell->Print("NoDevices\r\n");
+        if(SomeoneFound) PShell->EOL();
+        else PShell->Print("NoDevices\r\n");
     }
 
     else if(PCmd->NameIs("GetDeviceList")) {
@@ -707,14 +708,14 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
 #endif
 
 #if 1 // ==== HMC821 & ADF5356 ====
-    else if(SelfInfo.Type == devtMRL or SelfInfo.Type == devtKUKonv) {
+    // HMC821
+    else if(SelfInfo.Type == devtMRL) {
         if(PCmd->NameIs("SetRegs")) {
             uint32_t Cnt = 0, Addr, Value;
             while(true) {
                 if(PCmd->GetNext<uint32_t>(&Addr) != retvOk) break;
-                if(PCmd->GetNext<uint32_t>(&Value) != retvOk) { PShell->BadParam(); return; } // Addr exsits, value is not
-                if(SelfInfo.Type == devtMRL) Hmc821.WriteReg(Addr, Value);
-                else Adf5356.WriteReg(Addr, Value);
+                if(PCmd->GetNext<uint32_t>(&Value) != retvOk) { PShell->BadParam(); return; } // Addr exsits, value does not
+                Hmc821.WriteReg(Addr, Value);
                 Cnt++;
             }
             if(Cnt) PShell->Ok();
@@ -731,17 +732,9 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             }
             if(!Cnt) { PShell->BadParam(); return; }
             // Put regs to settings
-            if(SelfInfo.Type == devtMRL) { // Hmc821
-                for(uint32_t i=0; i<Cnt; i++) {
-                    Settings.Hmc821.Regs[i].Addr = Addr[i];
-                    Settings.Hmc821.Regs[i].Value = Value[i];
-                }
-            }
-            else {
-                for(uint32_t i=0; i<Cnt; i++) {
-                    Settings.Adf5356.Regs[i].Addr = Addr[i];
-                    Settings.Adf5356.Regs[i].Value = Value[i];
-                }
+            for(uint32_t i=0; i<Cnt; i++) {
+                Settings.Hmc821.Regs[i].Addr = Addr[i];
+                Settings.Hmc821.Regs[i].Value = Value[i];
             }
             // Save settings
             Settings.WhatSaved = SAVED_REGS_FLAG;
@@ -749,40 +742,70 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             if(Settings.Save() == retvOk) PShell->Ok();
             else PShell->Failure();
         }
-        // ==== ADF5356 ====
-        else if(SelfInfo.Type == devtKUKonv) {
-            if(PCmd->NameIs("CalcRegs")) {
-                if(PCmd->GetNextDouble(&Adf5356.fref) != retvOk) { PShell->BadParam(); return; }
-                if(PCmd->GetNextDouble(&Adf5356.step) != retvOk) { PShell->BadParam(); return; }
-                if(PCmd->GetNextDouble(&Adf5356.fd  ) != retvOk) { PShell->BadParam(); return; }
-                if(PCmd->GetNextDouble(&Adf5356.fvco) != retvOk) { PShell->BadParam(); return; }
-                Adf5356.CalcRegs();
-                Adf5356.PrintRegs();
-                PShell->Ok();
+    }
+    // ADF5356
+    else if(SelfInfo.Type == devtKUKonv) {
+        if(PCmd->NameIs("SetRegs")) {
+            uint32_t Cnt = 0, Value;
+            while(true) {
+                if(PCmd->GetNext<uint32_t>(&Value) != retvOk) break;
+                Adf5356.WriteReg(Value);
+                Cnt++;
             }
-            else if(PCmd->NameIs("CalcRegsAndSet")) {
-                if(PCmd->GetNextDouble(&Adf5356.fref) != retvOk) { PShell->BadParam(); return; }
-                if(PCmd->GetNextDouble(&Adf5356.step) != retvOk) { PShell->BadParam(); return; }
-                if(PCmd->GetNextDouble(&Adf5356.fd  ) != retvOk) { PShell->BadParam(); return; }
-                if(PCmd->GetNextDouble(&Adf5356.fvco) != retvOk) { PShell->BadParam(); return; }
-                Adf5356.CalcRegs();
-                Adf5356.SetRegs();
-                PShell->Ok();
+            if(Cnt) PShell->Ok();
+            else PShell->BadParam();
+        }
+        else if(PCmd->NameIs("SaveRegs")) {
+            uint32_t Cnt = 0, Value[REG_CNT];
+            // Get regs
+            while(true) {
+                if(Cnt >= REG_CNT) { PShell->BadParam(); return; }
+                if(PCmd->GetNext<uint32_t>(&Value[Cnt]) != retvOk) break;
+                Cnt++;
             }
-            else if(PCmd->NameIs("SaveSynthParams")) {
-                double fref, step, fd, fvco;
-                if(PCmd->GetNextDouble(&fref) != retvOk) { PShell->BadParam(); return; }
-                if(PCmd->GetNextDouble(&step) != retvOk) { PShell->BadParam(); return; }
-                if(PCmd->GetNextDouble(&fd  ) != retvOk) { PShell->BadParam(); return; }
-                if(PCmd->GetNextDouble(&fvco) != retvOk) { PShell->BadParam(); return; }
-                Settings.Adf5356.fref = fref;
-                Settings.Adf5356.step = step;
-                Settings.Adf5356.fd   = fd;
-                Settings.Adf5356.fvco = fvco;
-                Settings.WhatSaved = SAVED_PARAMS_FLAG;
-                if(Settings.Save() == retvOk) PShell->Ok();
-                else PShell->Failure();
+            if(!Cnt) { PShell->BadParam(); return; }
+            // Put regs to settings
+            for(uint32_t i=0; i<Cnt; i++) {
+                Settings.Adf5356.Regs[i] = Value[i];
             }
+            // Save settings
+            Settings.WhatSaved = SAVED_REGS_FLAG;
+            Settings.SavedRegsCnt = Cnt;
+            if(Settings.Save() == retvOk) PShell->Ok();
+            else PShell->Failure();
+        }
+
+        else if(PCmd->NameIs("CalcRegs")) {
+            if(PCmd->GetNextDouble(&Adf5356.fref) != retvOk) { PShell->BadParam(); return; }
+            if(PCmd->GetNextDouble(&Adf5356.step) != retvOk) { PShell->BadParam(); return; }
+            if(PCmd->GetNextDouble(&Adf5356.fd  ) != retvOk) { PShell->BadParam(); return; }
+            if(PCmd->GetNextDouble(&Adf5356.fvco) != retvOk) { PShell->BadParam(); return; }
+            Adf5356.CalcRegs();
+            Adf5356.PrintRegs();
+            PShell->Ok();
+        }
+        else if(PCmd->NameIs("CalcRegsAndSet")) {
+            if(PCmd->GetNextDouble(&Adf5356.fref) != retvOk) { PShell->BadParam(); return; }
+            if(PCmd->GetNextDouble(&Adf5356.step) != retvOk) { PShell->BadParam(); return; }
+            if(PCmd->GetNextDouble(&Adf5356.fd  ) != retvOk) { PShell->BadParam(); return; }
+            if(PCmd->GetNextDouble(&Adf5356.fvco) != retvOk) { PShell->BadParam(); return; }
+            Adf5356.CalcRegs();
+            Adf5356.SetRegs();
+            PShell->Ok();
+        }
+        else if(PCmd->NameIs("SaveSynthParams")) {
+            double fref, step, fd, fvco;
+            if(PCmd->GetNextDouble(&fref) != retvOk) { PShell->BadParam(); return; }
+            if(PCmd->GetNextDouble(&step) != retvOk) { PShell->BadParam(); return; }
+            if(PCmd->GetNextDouble(&fd  ) != retvOk) { PShell->BadParam(); return; }
+            if(PCmd->GetNextDouble(&fvco) != retvOk) { PShell->BadParam(); return; }
+            Settings.Adf5356.fref = fref;
+            Settings.Adf5356.step = step;
+            Settings.Adf5356.fd   = fd;
+            Settings.Adf5356.fvco = fvco;
+            Settings.WhatSaved = SAVED_PARAMS_FLAG;
+            if(Settings.Save() == retvOk) PShell->Ok();
+            else PShell->Failure();
         }
     }
 #endif

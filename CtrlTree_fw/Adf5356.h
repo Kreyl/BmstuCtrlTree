@@ -72,15 +72,11 @@ public:
         ISpi.Enable();
     }
 
-    void WriteWord(uint32_t TheWord) {
+    void WriteReg(uint32_t RegValue) { // 28xValue, 4xAddr
         LE.SetLo();
-        ISpi.ReadWriteWord((TheWord >> 16) & 0xFFFF);
-        ISpi.ReadWriteWord(TheWord & 0xFFFF);
+        ISpi.ReadWriteWord((RegValue >> 16) & 0xFFFF);
+        ISpi.ReadWriteWord(RegValue & 0xFFFF);
         LE.SetHi();
-    }
-
-    void WriteReg(uint32_t Addr, uint32_t Value) {
-        WriteWord((Value << 4) | (Addr & 0b1111UL)); // 28xValue, 4xAddr
     }
 
     /* Расчет массива значений регистров
@@ -152,30 +148,30 @@ public:
 
     void SetRegs() {
         if(Initialized) {
-            WriteWord(r[13]);
-            WriteWord(r[10]);
-            WriteWord(r[ 2]);
-            WriteWord(r[ 1]);
+            WriteReg(r[13]);
+            WriteReg(r[10]);
+            WriteReg(r[ 2]);
+            WriteReg(r[ 1]);
             chThdSleepMicroseconds(207);
-            WriteWord(r[ 0]);
+            WriteReg(r[ 0]);
         }
         // Init it
         else {
-            WriteWord(r[13]);
-            WriteWord(r[12]);
-            WriteWord(r[11]);
-            WriteWord(r[10]);
-            WriteWord(r[ 9]);
-            WriteWord(r[ 8]);
-            WriteWord(r[ 7]);
-            WriteWord(r[ 6]);
-            WriteWord(r[ 5]);
-            WriteWord(r[ 4]);
-            WriteWord(r[ 3]);
-            WriteWord(r[ 2]);
-            WriteWord(r[ 1]);
+            WriteReg(r[13]);
+            WriteReg(r[12]);
+            WriteReg(r[11]);
+            WriteReg(r[10]);
+            WriteReg(r[ 9]);
+            WriteReg(r[ 8]);
+            WriteReg(r[ 7]);
+            WriteReg(r[ 6]);
+            WriteReg(r[ 5]);
+            WriteReg(r[ 4]);
+            WriteReg(r[ 3]);
+            WriteReg(r[ 2]);
+            WriteReg(r[ 1]);
             chThdSleepMicroseconds(207); // Ensure that >16 ADC clock cycles elapse between the write of Register 10 and Register 0.
-            WriteWord(r[ 0]);
+            WriteReg(r[ 0]);
             Initialized = true;
         }
     }

@@ -68,11 +68,6 @@ struct RegHMC821_t {
     uint32_t Value : 24;
 } __attribute__((packed));
 
-struct RegAdf5356_t {
-    uint32_t Value : 28;
-    uint32_t Addr: 4;
-} __attribute__((packed));
-
 #define REG_CNT             22
 #define SAVED_NONE_FLAG     0
 #define SAVED_REGS_FLAG     0x95
@@ -90,7 +85,7 @@ public:
 
             struct {
                 union {
-                    RegAdf5356_t Regs[REG_CNT];
+                    uint32_t Regs[REG_CNT];
                     struct {
                         double fref, step, fd, fvco;
                     };
