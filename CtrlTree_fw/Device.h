@@ -74,6 +74,7 @@ struct RegHMC821_t {
 #define SAVED_PARAMS_FLAG   0xCA
 class Settings_t {
 public:
+    // Data
     uint32_t PowerOnGPIO = 0;
     float TargetT = 0;
     uint8_t TControlEnabled = 0;
@@ -94,7 +95,12 @@ public:
         } __attribute__((packed));
         uint8_t SavedRegsCnt = 0;
         uint8_t WhatSaved = 0;
-    }  __attribute__((packed));
+    } __attribute__((packed));
+    struct {
+        bool CS1ActiveLow : 1;
+        bool CS2ActiveLow : 1;
+    } SpiSetup;
+    // Methods
     uint8_t Load();
     uint8_t Save();
     void Reset();

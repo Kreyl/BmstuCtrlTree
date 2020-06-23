@@ -95,18 +95,24 @@ public:
     DevSpi_t(SPI_TypeDef *ASpi,
             GPIO_TypeDef *AGpio, uint32_t ASck, uint32_t AMiso, uint32_t AMosi, uint32_t ACs, AlterFunc_t AAF) :
                 PSpi(ASpi), PGpio(AGpio), Sck(ASck), Miso(AMiso), Mosi(AMosi), Cs(ACs), AF(AAF) {}
-    void Init() {
+    void Init(bool CsActiveLowIdleHi) {
         if      (PSpi == SPI1) { rccEnableSPI1(FALSE); }
         else if (PSpi == SPI2) { rccEnableSPI2(FALSE); }
         PinSetupOut(PGpio, Cs, omPushPull);
-        PinSetHi(PGpio, Cs);
+        // Deactivate CS
+        if(CsActiveLowIdleHi) PinSetHi(PGpio, Cs);
+        else PinSetLo(PGpio, Cs);
         PinSetupAlterFunc(PGpio, Sck,  omPushPull, pudNone, AF, psVeryHigh);
         PinSetupAlterFunc(PGpio, Miso, omPushPull, pudNone, AF, psVeryHigh);
         PinSetupAlterFunc(PGpio, Mosi, omPushPull, pudNone, AF, psVeryHigh);
     }
 
     void Transmit(uint8_t Params, uint8_t *ptr, uint32_t Len) {
-        PinSetLo(PGpio, Cs);
+        bool CsActiveLowIdleHi = (Params & 0x08) == 0;
+        // Activate CS
+        if(CsActiveLowIdleHi) PinSetLo(PGpio, Cs);
+        else PinSetHi(PGpio, Cs);
+        // Setup SPI
         PSpi->CR1 = SPI_CR1_SSM | SPI_CR1_SSI | SPI_CR1_MSTR;
         if(Params & 0x80) PSpi->CR1 |= SPI_CR1_LSBFIRST; // 0 = MSB, 1 = LSB
         if(Params & 0x40) PSpi->CR1 |= SPI_CR1_CPOL;     // 0 = IdleLow, 1 = IdleHigh
@@ -123,7 +129,9 @@ public:
             ptr++;
             Len--;
         }
-        PinSetHi(PGpio, Cs);
+        // Deactivate CS
+        if(CsActiveLowIdleHi) PinSetHi(PGpio, Cs);
+        else PinSetLo(PGpio, Cs);
         PSpi->CR1 &= ~SPI_CR1_SPE; // Disable SPI
     }
 };
@@ -251,7 +259,7 @@ int main(void) {
     // Always
     GpioReg.Init();
     GpioReg.Set(Settings.PowerOnGPIO);
-    Spi2.Init();
+    Spi2.Init(Settings.SpiSetup.CS2ActiveLow);
 
     // Spi1 utilized by MRL and KuKonv, init it if type id another
     if(SelfInfo.Type == devtMRL) {
@@ -282,7 +290,7 @@ int main(void) {
 //            Adf5356.PrintRegs();
         }
     }
-    else Spi1.Init();
+    else Spi1.Init(Settings.SpiSetup.CS1ActiveLow);
 
     // Main cycle
     ITask();
@@ -630,6 +638,28 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         }
         else PShell->BadParam();
     }
+
+    else if(PCmd->NameIs("SetCS1")) {
+        uint32_t CsActiveLow;
+        if(PCmd->GetNext<uint32_t>(&CsActiveLow) == retvOk) {
+            Settings.SpiSetup.CS1ActiveLow = (bool)CsActiveLow;
+            if(Settings.Save() == retvOk) PShell->Ok();
+            else PShell->Failure();
+        }
+        else PShell->BadParam();
+    }
+    else if(PCmd->NameIs("SetCS2")) {
+        uint32_t CsActiveLow;
+        if(PCmd->GetNext<uint32_t>(&CsActiveLow) == retvOk) {
+            Settings.SpiSetup.CS2ActiveLow = (bool)CsActiveLow;
+            if(Settings.Save() == retvOk) PShell->Ok();
+            else PShell->Failure();
+        }
+        else PShell->BadParam();
+    }
+
+    else if(PCmd->NameIs("GetCS1")) { PShell->Print("GetCS1 %u\r\n", Settings.SpiSetup.CS1ActiveLow); }
+    else if(PCmd->NameIs("GetCS2")) { PShell->Print("GetCS2 %u\r\n", Settings.SpiSetup.CS2ActiveLow); }
 #endif
 
     else if(PCmd->NameIs("UpdateFW")) {

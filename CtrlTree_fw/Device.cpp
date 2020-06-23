@@ -139,6 +139,7 @@ void Settings_t::Reset() {
     PowerOnGPIO = 0;
     TargetT = 0;
     TControlEnabled = 0;
-
+    SpiSetup.CS1ActiveLow = false;
+    SpiSetup.CS2ActiveLow = false;
 }
 #endif
