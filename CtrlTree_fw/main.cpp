@@ -167,16 +167,16 @@ public:
 //        PinSetupAlterFunc(GPIOA, 6, omPushPull, pudNone, AF5, psVeryHigh); // MISO
         PinSetupAlterFunc(GPIOA, 7, omPushPull, pudNone, AF5, psVeryHigh); // MOSI
         rccEnableSPI1(FALSE);
-        ISpi.Setup(boMSB, cpolIdleLow, cphaFirstEdge, 8000000, bitn16);
+        ISpi.Setup(boMSB, cpolIdleLow, cphaFirstEdge, 1000000, bitn16);
         ISpi.Enable();
     }
     void WriteReg(uint32_t Addr, uint32_t Value) {
-        uint32_t Word = (Addr << 25) | ((Value & 0xFFF) << 1); // 0=wr, 6xAddr, 24xValue, 1xDontCare
+        uint32_t Word = ((Addr & 0x3FUL) << 25) | ((Value & 0xFFFFFFUL) << 1); // 0=wr, 6xAddr, 24xValue, 1xDontCare
         SEN.SetHi(); // SEN is active hi
         ISpi.ReadWriteWord((Word >> 16) & 0xFFFF);
         ISpi.ReadWriteWord(Word & 0xFFFF);
         SEN.SetLo();
-//        Printf("HMC: %X = %X\r", Addr, Value);
+//        Printf("HMC: %X = %X; %X\r", Addr, Value, Word);
     }
 } Hmc821;
 
@@ -277,6 +277,7 @@ int main(void) {
         if(Settings.WhatSaved == SAVED_REGS_FLAG and Settings.SavedRegsCnt <= REG_CNT) {
             for(uint32_t i=0; i<Settings.SavedRegsCnt; i++) {
                 Adf5356.WriteReg(Settings.Adf5356.Regs[i]);
+//                Printf("%X\r", Settings.Adf5356.Regs[i]);
             }
         }
         // Or calc and set regs if params were saved
@@ -411,8 +412,9 @@ void OnCmd(Shell_t *PShell) {
             }
         }
         else { // We are slave
-            if(PCmd->GetNext<uint8_t>(&FAddr) == retvOk and FAddr == SelfInfo.Addr) {
-                OnSlaveCmd(PShell, PCmd);
+            if(PCmd->GetNext<uint8_t>(&FAddr) == retvOk) {
+//                Printf("Addr: %u\r", FAddr);
+                if(FAddr == SelfInfo.Addr) OnSlaveCmd(PShell, PCmd);
             }
         }
     } // not direct
@@ -567,7 +569,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         strcpy(SelfInfo.Name, S);
         TryToSaveSelfInfo(PShell);
     }
-    else if(PCmd->NameIs("GetTypeName")) { PShell->Print("GetTypeName %u %S\r\n", SelfInfo.Type, SelfInfo.Name); }
+    else if(PCmd->NameIs("GetTypeName")) { PShell->Print("RGetTypeName %u %S\r\n", SelfInfo.Type, SelfInfo.Name); }
 #endif
 #if 1 // ==== GPIO Reg ====
     else if(PCmd->NameIs("SetGPIO")) {
@@ -576,7 +578,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
          GpioReg.Set(Reg);
          PShell->Ok();
     }
-    else if(PCmd->NameIs("GetGPIO")) { PShell->Print("GetGPIO 0x%X\r\n", GpioReg.Get()); }
+    else if(PCmd->NameIs("GetGPIO")) { PShell->Print("RGetGPIO 0x%X\r\n", GpioReg.Get()); }
 
     else if(PCmd->NameIs("SetPowerOnGPIO")) {
         uint32_t Reg;
@@ -585,7 +587,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         if(Settings.Save() == retvOk) PShell->Ok();
         else PShell->Failure();
     }
-    else if(PCmd->NameIs("GetPowerOnGPIO")) { PShell->Print("GetPowerOnGPIO 0x%X\r\n", Settings.PowerOnGPIO); }
+    else if(PCmd->NameIs("GetPowerOnGPIO")) { PShell->Print("RGetPowerOnGPIO 0x%X\r\n", Settings.PowerOnGPIO); }
 #endif
 #if 1 // ==== SPI ====
     else if(PCmd->NameIs("WRSPI")) {
@@ -603,7 +605,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         else Spi1.Transmit(Params, FileBuf, Len);
         // Reply
         p = FileBuf;
-        PShell->Print("%S", PCmd->Name);
+        PShell->Print("RWRSPI");
         while(Len--) PShell->Print(" 0x%02X", *p++);
         PShell->EOL();
     }
@@ -643,6 +645,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         uint32_t CsActiveLow;
         if(PCmd->GetNext<uint32_t>(&CsActiveLow) == retvOk) {
             Settings.SpiSetup.CS1ActiveLow = (bool)CsActiveLow;
+            Spi1.Init(CsActiveLow);
             if(Settings.Save() == retvOk) PShell->Ok();
             else PShell->Failure();
         }
@@ -652,14 +655,15 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         uint32_t CsActiveLow;
         if(PCmd->GetNext<uint32_t>(&CsActiveLow) == retvOk) {
             Settings.SpiSetup.CS2ActiveLow = (bool)CsActiveLow;
+            Spi2.Init(CsActiveLow);
             if(Settings.Save() == retvOk) PShell->Ok();
             else PShell->Failure();
         }
         else PShell->BadParam();
     }
 
-    else if(PCmd->NameIs("GetCS1")) { PShell->Print("GetCS1 %u\r\n", Settings.SpiSetup.CS1ActiveLow); }
-    else if(PCmd->NameIs("GetCS2")) { PShell->Print("GetCS2 %u\r\n", Settings.SpiSetup.CS2ActiveLow); }
+    else if(PCmd->NameIs("GetCS1")) { PShell->Print("RGetCS1 %u\r\n", Settings.SpiSetup.CS1ActiveLow); }
+    else if(PCmd->NameIs("GetCS2")) { PShell->Print("RGetCS2 %u\r\n", Settings.SpiSetup.CS2ActiveLow); }
 #endif
 
     else if(PCmd->NameIs("UpdateFW")) {
@@ -683,7 +687,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
     }
 
     else if(PCmd->NameIs("GetState")) {
-        PShell->Print("GetState %S GPIO=0x%X", XSTRINGIFY(BUILD_TIME), GpioReg.Get());
+        PShell->Print("RGetState %S GPIO=0x%X", XSTRINGIFY(BUILD_TIME), GpioReg.Get());
         switch(SelfInfo.Type) {
             case devtNone:
             case devtHFBlock:
@@ -715,7 +719,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         if(Settings.Save() == retvOk) PShell->Ok();
         else PShell->Failure();
     }
-    else if(PCmd->NameIs("GetTTS")) { PShell->Print("GetTTS %.1f\r\n", Settings.TargetT); }
+    else if(PCmd->NameIs("GetTTS")) { PShell->Print("RGetTTS %.1f\r\n", Settings.TargetT); }
 
     else if(PCmd->NameIs("SetTstating")) {
         if(SelfInfo.Type == devtLNA or SelfInfo.Type == devtTriplexer) {
@@ -730,7 +734,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
         }
         else PShell->CmdError();
     }
-    else if(PCmd->NameIs("GetTstating")) { PShell->Print("GetTstating %u\r\n", Settings.TControlEnabled); }
+    else if(PCmd->NameIs("GetTstating")) { PShell->Print("RGetTstating %u\r\n", Settings.TControlEnabled); }
 #endif
 
 #if 1 // ==== HMC821 & ADF5356 ====
@@ -768,6 +772,21 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             if(Settings.Save() == retvOk) PShell->Ok();
             else PShell->Failure();
         }
+        else if(PCmd->NameIs("GetRegs")) {
+            if(Settings.WhatSaved == SAVED_REGS_FLAG and Settings.SavedRegsCnt <= REG_CNT) {
+                PShell->Print("RGetRegs ");
+                for(uint32_t i=0; i<Settings.SavedRegsCnt; i++) {
+                    PShell->Print("0x%X 0x%X, ", Settings.Hmc821.Regs[i].Addr, Settings.Hmc821.Regs[i].Value);
+                }
+                PShell->EOL();
+            }
+            else PShell->Print("RGetRegs Empty\r\n");
+        }
+        else if(PCmd->NameIs("ClearRegs")) {
+            Settings.WhatSaved = SAVED_NONE_FLAG;
+            if(Settings.Save() == retvOk) PShell->Ok();
+            else PShell->Failure();
+        }
     }
     // ADF5356
     else if(SelfInfo.Type == devtKUKonv) {
@@ -793,10 +812,26 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             // Put regs to settings
             for(uint32_t i=0; i<Cnt; i++) {
                 Settings.Adf5356.Regs[i] = Value[i];
+//                Printf("%X\r", Value[i]);
             }
             // Save settings
             Settings.WhatSaved = SAVED_REGS_FLAG;
             Settings.SavedRegsCnt = Cnt;
+            if(Settings.Save() == retvOk) PShell->Ok();
+            else PShell->Failure();
+        }
+        else if(PCmd->NameIs("GetRegs")) {
+            if(Settings.WhatSaved == SAVED_REGS_FLAG and Settings.SavedRegsCnt <= REG_CNT) {
+                PShell->Print("RGetRegs ");
+                for(uint32_t i=0; i<Settings.SavedRegsCnt; i++) {
+                    PShell->Print("0x%X ", Settings.Adf5356.Regs[i]);
+                }
+                PShell->EOL();
+            }
+            else PShell->Print("RGetRegs Empty\r\n");
+        }
+        else if(PCmd->NameIs("ClearRegs")) {
+            Settings.WhatSaved = SAVED_NONE_FLAG;
             if(Settings.Save() == retvOk) PShell->Ok();
             else PShell->Failure();
         }

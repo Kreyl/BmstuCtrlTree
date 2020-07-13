@@ -79,6 +79,7 @@ public:
     void EnableRx()  { Params->Uart->CR1 |= USART_CR1_RE; }
     void DisableRx() { Params->Uart->CR1 &= ~USART_CR1_RE; }
     void FlushTx() { while(!IDmaIsIdle) chThdSleepMilliseconds(1); }  // wait DMA
+    void FlushRx();
     void EnableTCIrq(const uint32_t Priority, ftVoidVoid ACallback);
     void SetReplyEndChar(char c);
     // Inner use

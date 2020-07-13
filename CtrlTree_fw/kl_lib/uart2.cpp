@@ -185,6 +185,11 @@ uint8_t BaseUart_t::GetByte(uint8_t *b) {
     if(RIndx >= UART_RXBUF_SZ) RIndx = 0;
     return retvOk;
 }
+
+void BaseUart_t::FlushRx() {
+    uint8_t b;
+    while(GetByte(&b) == retvOk);
+}
 #endif // RX
 
 #if 1 // ==== Init ====
@@ -528,6 +533,7 @@ uint8_t HostUart485_t::TryParseRxBuff() {
 }
 
 uint8_t HostUart485_t::SendCmd(uint32_t Timeout_ms, const char* ACmd, uint32_t Addr, const char *format, ...) {
+    FlushRx();
     Print("%S %u", ACmd, Addr);
     if(format and *format != 0) {
         IPutByte(' '); // Add space after addr if something follows

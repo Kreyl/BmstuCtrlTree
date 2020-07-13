@@ -57,7 +57,7 @@ private:
         return a;
     }
 public:
-    bool Initialized = false;
+    bool Initialized = false; // Send R0 twice after power-on
     double fref, step, fd, fvco;
     void Init() {
         // Init GPIOs
@@ -73,6 +73,8 @@ public:
     }
 
     void WriteReg(uint32_t RegValue) { // 28xValue, 4xAddr
+        // Delay before Reg0
+        if((RegValue & 0b1111UL) == 0) chThdSleepMilliseconds(1);
         LE.SetLo();
         ISpi.ReadWriteWord((RegValue >> 16) & 0xFFFF);
         ISpi.ReadWriteWord(RegValue & 0xFFFF);
@@ -152,7 +154,7 @@ public:
             WriteReg(r[10]);
             WriteReg(r[ 2]);
             WriteReg(r[ 1]);
-            chThdSleepMicroseconds(207);
+            chThdSleepMilliseconds(1);
             WriteReg(r[ 0]);
         }
         // Init it
@@ -170,7 +172,7 @@ public:
             WriteReg(r[ 3]);
             WriteReg(r[ 2]);
             WriteReg(r[ 1]);
-            chThdSleepMicroseconds(207); // Ensure that >16 ADC clock cycles elapse between the write of Register 10 and Register 0.
+            chThdSleepMilliseconds(1); // Ensure that >16 ADC clock cycles elapse between the write of Register 10 and Register 0.
             WriteReg(r[ 0]);
             Initialized = true;
         }
