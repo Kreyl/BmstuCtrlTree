@@ -3,3 +3,5 @@
 *.kicad_pcb-bak
 *.dsn
 *.ses
+CtrlTree_hw/CtrlTree-backups/
+Docs/~$оект ControlTree.docx

@@ -32,9 +32,9 @@ public:
     float tAvg;
     void Init();
     void SetHeater(uint32_t Value);
-    void Disable() { NewMode = modeDisabled; }
     void StartMeasure() { NewMode = modeMeasure; }
     void StartControl() { NewMode = modeControl; }
+    void Stop()         { NewMode = modeDisabled; }
     // Inner use
     void ITask();
 };

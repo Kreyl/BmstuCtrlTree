@@ -271,7 +271,7 @@ int main(void) {
             }
         }
     }
-    else if(SelfInfo.Type == devtKUKonv) {
+    else if(SelfInfo.Type == devtKUKonv or SelfInfo.Type == devtIKS) {
         Adf5356.Init();
         // Load regs if they are saved
         if(Settings.WhatSaved == SAVED_REGS_FLAG and Settings.SavedRegsCnt <= REG_CNT) {
@@ -351,6 +351,24 @@ void TryToSaveSelfInfo(Shell_t *PShell) {
     else PShell->Failure();
 }
 
+void SetType(DevType_t NewType, Shell_t *PShell) {
+    SelfInfo.Type = NewType;
+    // Reset everything
+    Settings.Reset();
+    Spi1.Init(true);
+    tControl.Stop(); // Stop TStating
+    switch(NewType) {
+        case devtHFBlock:                            break;
+        case devtLNA:       tControl.StartMeasure(); break;
+        case devtKUKonv:    Adf5356.Init();          break;
+        case devtMRL:       Hmc821.Init();           break;
+        case devtTriplexer: tControl.StartMeasure(); break;
+        case devtIKS:       Adf5356.Init();          break;
+        default: break;
+    } // switch
+    TryToSaveSelfInfo(PShell);
+}
+
 void OnCmd(Shell_t *PShell) {
     Led.StartOrRestart(lsqCmd);
 	Cmd_t *PCmd = &PShell->Cmd;
@@ -388,9 +406,7 @@ void OnCmd(Shell_t *PShell) {
     else if(PCmd->NameIs("SetType")) {
         uint8_t Type;
         if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return; }
-        SelfInfo.Type = (DevType_t)Type;
-        Settings.Reset();
-        TryToSaveSelfInfo(PShell);
+        SetType((DevType_t)Type, PShell);
     }
     else if(PCmd->NameIs("SetName")) {
         char *S =PCmd->GetNextString();
@@ -559,9 +575,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
     else if(PCmd->NameIs("ChangeType")) {
         uint8_t Type;
         if(PCmd->GetNext<uint8_t>(&Type) != retvOk or !TypeIsOk(Type)) { PShell->Print("BadParam\r\n"); return; }
-        SelfInfo.Type = (DevType_t)Type;
-        Settings.Reset();
-        TryToSaveSelfInfo(PShell);
+        SetType((DevType_t)Type, PShell);
     }
     else if(PCmd->NameIs("ChangeName")) {
         char *S = PCmd->GetNextString();
@@ -737,8 +751,7 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
     else if(PCmd->NameIs("GetTstating")) { PShell->Print("RGetTstating %u\r\n", Settings.TControlEnabled); }
 #endif
 
-#if 1 // ==== HMC821 & ADF5356 ====
-    // HMC821
+#if 1 // ==== HMC821 ====
     else if(SelfInfo.Type == devtMRL) {
         if(PCmd->NameIs("SetRegs")) {
             uint32_t Cnt = 0, Addr, Value;
@@ -788,8 +801,9 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             else PShell->Failure();
         }
     }
-    // ADF5356
-    else if(SelfInfo.Type == devtKUKonv) {
+#endif
+#if 1 // ==== ADF5356 (KuKonv & IKS) ====
+    else if(SelfInfo.Type == devtKUKonv or SelfInfo.Type == devtIKS) {
         if(PCmd->NameIs("SetRegs")) {
             uint32_t Cnt = 0, Value;
             while(true) {

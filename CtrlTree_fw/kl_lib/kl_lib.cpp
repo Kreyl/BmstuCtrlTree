@@ -3068,13 +3068,22 @@ void Clk_t::DisablePLLI2S() {
 #if 1 // ================================= SPI =================================
 void Spi_t::Setup(BitOrder_t BitOrder, CPOL_t CPOL, CPHA_t CPHA,
         int32_t Bitrate_Hz, BitNumber_t BitNumber) const {
-    // Clocking
-    if      (PSpi == SPI1) { rccEnableSPI1(FALSE); }
+    // Reset and Clocking
+    if(PSpi == SPI1) {
+        rccResetSPI1();
+        rccEnableSPI1(FALSE);
+    }
 #ifdef SPI2
-    else if (PSpi == SPI2) { rccEnableSPI2(FALSE); }
+    else if (PSpi == SPI2) {
+        rccResetSPI2();
+        rccEnableSPI2(FALSE);
+    }
 #endif
 #ifdef SPI3
-    else if (PSpi == SPI3) { rccEnableSPI3(FALSE); }
+    else if (PSpi == SPI3) {
+        rccResetSPI3();
+        rccEnableSPI3(FALSE);
+    }
 #endif
 #ifdef SPI4
     else if (PSpi == SPI4) { rccEnableSPI4(FALSE); }

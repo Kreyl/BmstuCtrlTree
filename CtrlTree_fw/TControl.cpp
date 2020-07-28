@@ -62,7 +62,7 @@ void tControl_t::ITask() {
             for(auto &Sns : Sensors) {
                 if(Sns.GetT() == retvOk) {
                     Cnt++;
-                    tAvg++;
+                    tAvg += Sns.t;
                 }
             }
             if(Cnt != 0) tAvg /= Cnt;
