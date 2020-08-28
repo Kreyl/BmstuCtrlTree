@@ -23,10 +23,10 @@ void OnCmd(Shell_t *PShell);
 void ITask();
 
 // Hoard of UARTs
-static const UartParams_t CmdUartParams(115200, CMD_UART_PARAMS);
-static const UartParams_t RS232Params(115200, RS232_PARAMS);
-static const UartParams_t RS485ExtParams(115200, RS485EXT_PARAMS);
-static const UartParams_t RS485IntParams(115200, RS485INT_PARAMS);
+static const UartParams_t CmdUartParams (115200, CMD_UART_PARAMS);
+static const UartParams_t RS232Params   (19200, RS232_PARAMS);
+static const UartParams_t RS485ExtParams(19200, RS485EXT_PARAMS);
+static const UartParams_t RS485IntParams(19200, RS485INT_PARAMS);
 
 // Control from outside
 CmdUart_t Uart{CmdUartParams};
@@ -800,6 +800,16 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             if(Settings.Save() == retvOk) PShell->Ok();
             else PShell->Failure();
         }
+
+        else if(PCmd->NameIs("ReloadRegs")) {
+            if(Settings.WhatSaved == SAVED_REGS_FLAG and Settings.SavedRegsCnt <= REG_CNT) {
+                for(uint32_t i=0; i<Settings.SavedRegsCnt; i++) {
+                    Hmc821.WriteReg(Settings.Hmc821.Regs[i].Addr, Settings.Hmc821.Regs[i].Value);
+                }
+                PShell->Ok();
+            }
+            else PShell->Failure();
+        }
     }
 #endif
 #if 1 // ==== ADF5356 (KuKonv & IKS) ====
@@ -880,6 +890,16 @@ void OnSlaveCmd(Shell_t *PShell, Cmd_t *PCmd) {
             Settings.Adf5356.fvco = fvco;
             Settings.WhatSaved = SAVED_PARAMS_FLAG;
             if(Settings.Save() == retvOk) PShell->Ok();
+            else PShell->Failure();
+        }
+
+        else if(PCmd->NameIs("ReloadRegs")) {
+            if(Settings.WhatSaved == SAVED_REGS_FLAG and Settings.SavedRegsCnt <= REG_CNT) {
+                for(uint32_t i=0; i<Settings.SavedRegsCnt; i++) {
+                    Adf5356.WriteReg(Settings.Adf5356.Regs[i]);
+                }
+                PShell->Ok();
+            }
             else PShell->Failure();
         }
     }
